@@ -88,23 +88,48 @@ function buildHidingCss(s: AppSettings): string {
     `);
   }
 
+  // Always: hide YouTube's own bottom navigation bar (Home/Shorts/You) —
+  // we already have our own bottom tab bar so showing both is ugly and
+  // confusing. Also reclaim the space it occupied.
+  rules.push(`
+    ytm-pivot-bar-renderer,
+    .pivot-bar,
+    ytm-pivot-bar,
+    #pivot-bar,
+    /* Mini-player can also dock at the bottom of m.youtube.com — keep it
+       but make sure the gap reserved for the pivot bar collapses. */
+    .mobile-topbar-shadow ~ ytm-pivot-bar-renderer,
+    body { padding-bottom: 0 !important; }
+    ytm-app { --ytm-pivot-bar-height: 0px !important; }
+  `);
+
   // Always: trim YouTube's own promo banners on mobile, including the
   // very persistent "Open in App" / "Get the YouTube app" prompts.
   rules.push(`
     ytm-promoted-sparkles-text-search-renderer,
     .ytm-promoted-sparkles-web-renderer-thumbnail,
-    /* "Open App" floating button + bottom snackbar */
+    /* "Open App" floating button + bottom snackbar (every variant) */
     ytm-mealbar-promo-renderer,
     ytm-app-promo-renderer,
+    ytm-app-deeplink-redirect-renderer,
+    ytm-fullscreen-app-promo-renderer,
+    ytm-promoted-app-renderer,
     .mealbar-promo-renderer,
     .app-promo-renderer,
+    .app-promo-button,
     ytm-singleton-snackbar-container,
     .singleton-snackbar-container,
-    /* The full-width yellow banner urging users to open the app */
+    /* Yellow / red full-width banners urging users to open the app */
     ytm-upsell-dialog-renderer,
     ytm-mobile-topbar-renderer .topbar-menu-button-app-promo,
+    /* Top-bar three-dot menu "Open in YouTube app" entry */
+    ytm-menu-item:has(*[aria-label*="app" i]),
+    /* Any link that would deep-link / store-link the YouTube native app */
     a[href*="play.google.com/store/apps/details?id=com.google.android.youtube"],
     a[href*="apps.apple.com"][href*="youtube"],
+    a[href^="intent:"],
+    a[href^="vnd.youtube:"],
+    a[href^="market:"],
     /* Cookie / consent banners (rarely shown but cover the UI when they are) */
     ytm-consent-bump-v2-lightbox,
     tp-yt-paper-dialog[role="dialog"]:has(*[aria-label*="cookie" i]) { display: none !important; }
@@ -131,6 +156,39 @@ function buildInjectedJs(css: string): string {
         }
         if (tag.textContent !== CSS) tag.textContent = CSS;
       }
+      function bumpQuality(){
+        try {
+          // Use YouTube's own player API if exposed.
+          var p = document.querySelector('#movie_player, .html5-video-player');
+          if (p && typeof p.getAvailableQualityLevels === 'function') {
+            var levels = p.getAvailableQualityLevels();
+            if (levels && levels.length) {
+              // levels[0] is the highest available (hd2160, hd1440, hd1080, ...).
+              p.setPlaybackQualityRange(levels[0], levels[0]);
+              p.setPlaybackQuality(levels[0]);
+            }
+          }
+        } catch(e) {}
+      }
+      function killAppPrompts(){
+        try {
+          // CSS can't match by visible text, so sweep the DOM for any
+          // button / link whose text mentions "open", "get the app",
+          // "in app" and hide its nearest banner-like ancestor.
+          var rx = /\b(open\s+in\s+app|open\s+app|get\s+the\s+app|use\s+app|try\s+the\s+app|continue\s+in\s+app|in\s+the\s+app)\b/i;
+          var nodes = document.querySelectorAll('a, button, [role="button"]');
+          for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            var t = (n.textContent || n.getAttribute('aria-label') || '').trim();
+            if (t && rx.test(t)) {
+              // Hide the visual container, not just the link, so the bar
+              // collapses entirely.
+              var host = n.closest('ytm-mealbar-promo-renderer, ytm-app-promo-renderer, ytm-singleton-snackbar-container, ytm-upsell-dialog-renderer, [class*="promo"], [class*="snackbar"], [class*="banner"], dialog, tp-yt-paper-dialog') || n;
+              host.style.setProperty('display', 'none', 'important');
+            }
+          }
+        } catch(e) {}
+      }
       function killAdNow(){
         try {
           // If a video ad is currently playing, skip it by jumping to the end
@@ -147,10 +205,10 @@ function buildInjectedJs(css: string): string {
       }
       applyCss();
       // Re-apply on DOM changes (lazy loading + SPA route changes).
-      var mo = new MutationObserver(function(){ applyCss(); killAdNow(); });
+      var mo = new MutationObserver(function(){ applyCss(); killAdNow(); killAppPrompts(); });
       mo.observe(document.documentElement, {childList:true, subtree:true});
       // Periodic safety net.
-      setInterval(function(){ applyCss(); killAdNow(); }, 1000);
+      setInterval(function(){ applyCss(); killAdNow(); bumpQuality(); killAppPrompts(); }, 1000);
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage('appview:ready');
     } catch(err) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage('appview:error:' + (err && err.message));

@@ -92,8 +92,6 @@ See `docs/05_TEST_CASES.md` for the full list of 60+ test cases.
 - [x] Phase 1: Browser extension MVP
 - [x] Phase 2: All 3 modes + settings
 - [x] Phase 3: React Native mobile app
-- [ ] Phase 4: AI summary panel
-- [ ] Phase 5: Trading insights integration (Auravestia)
 
 ---
 
