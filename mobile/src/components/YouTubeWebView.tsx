@@ -208,20 +208,26 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
       }
       function killAdNow(){
         try {
-          // Only act when the player is actually showing a video ad: a
-          // skip button is visible OR an ad overlay is mounted. We must
-          // NOT touch currentTime/playbackRate of the main video — doing
-          // that broke seeking (jumping from 0 to a later timestamp would
-          // momentarily flag .ad-showing during the buffer flip and the
-          // old code would then fast-forward / error the real video).
-          var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text');
-          if (skip) { skip.click(); return; }
+          // Detect an ad strictly via the player's own state (the
+          // "ad-showing" class on .html5-video-player is the canonical
+          // signal; the .ytp-ad-player-overlay element only mounts during
+          // a real ad). We never touch the main video's currentTime.
+          var player = document.querySelector('.html5-video-player');
           var overlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-instream-info');
-          if (!overlay) return;
-          var adVideo = document.querySelector('.video-ads .video-stream, .ad-showing video');
-          if (adVideo && isFinite(adVideo.duration) && adVideo.duration > 0 && adVideo.duration < 180) {
-            // Cap to short ad clips only; never touch a long main video.
-            adVideo.currentTime = adVideo.duration;
+          var adActive = !!(player && player.classList.contains('ad-showing')) && !!overlay;
+          if (!adActive) return;
+          // 1) Try to click any visible Skip button immediately.
+          var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, button[class*="skip"]');
+          if (skip) { try { skip.click(); } catch(e){} }
+          // 2) Mute + fast-forward the ad video itself (NOT the main one).
+          //    We pick the <video> inside .video-ads / .ad-showing only.
+          var adVideo = document.querySelector('.video-ads video, .ad-showing video.video-stream');
+          if (adVideo) {
+            try { adVideo.muted = true; adVideo.volume = 0; } catch(e){}
+            if (isFinite(adVideo.duration) && adVideo.duration > 0 && adVideo.duration < 600) {
+              try { adVideo.currentTime = Math.max(adVideo.currentTime, adVideo.duration - 0.1); } catch(e){}
+              try { adVideo.playbackRate = 16; } catch(e){}
+            }
           }
         } catch(e) {}
       }
@@ -268,8 +274,10 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
       // Re-apply on DOM changes (lazy loading + SPA route changes).
       var mo = new MutationObserver(function(){ applyCss(); killAdNow(); killAppPrompts(); });
       mo.observe(document.documentElement, {childList:true, subtree:true});
-      // Periodic safety net.
-      setInterval(function(){ applyCss(); killAdNow(); bumpQuality(); killAppPrompts(); }, 1000);
+      // Periodic safety net (200ms instead of 1s so ads get killed faster).
+      setInterval(function(){ applyCss(); killAdNow(); killAppPrompts(); }, 200);
+      // Quality bump runs less often to avoid spamming the player API.
+      setInterval(bumpQuality, 5000);
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage('appview:ready');
     } catch(err) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage('appview:error:' + (err && err.message));
@@ -307,8 +315,11 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
         ref={webRef}
         source={{uri}}
         originWhitelist={['*']}
-        // Pretend to be a real mobile browser so YouTube serves m.youtube.com.
-        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        // Pretend to be mobile Safari on iOS — *not* a WebView. Google's
+        // sign-in flow refuses any UA containing "wv" (WebView marker) or
+        // "WKWebView" with "browser may not be secure". A clean Safari UA
+        // is the most reliable workaround short of using ASWebAuthSession.
+        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
         injectedJavaScript={injected}
         javaScriptEnabled
         domStorageEnabled
