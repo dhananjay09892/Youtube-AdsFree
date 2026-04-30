@@ -9,6 +9,9 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "NO_FLIPPER": "1"
       }
     },
     "preview": {
@@ -18,11 +21,17 @@
       },
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "NO_FLIPPER": "1"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "NO_FLIPPER": "1"
       }
     }
   },
