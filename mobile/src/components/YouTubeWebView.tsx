@@ -101,34 +101,22 @@ function buildHidingCss(s: AppSettings): string {
     ytm-app { --ytm-pivot-bar-height: 0px !important; }
   `);
 
-  // Watch-page layout: keep the player as a 16:9 block at the top and let the
-  // metadata / description / related videos scroll naturally below it.
-  // Without this the mobile site sometimes pins the player to the full
-  // viewport so users had to enter fullscreen just to see anything else.
+  // Watch-page layout: cap the inline player to 16:9 of the viewport width
+  // so the metadata / description / related videos remain visible below.
+  // IMPORTANT: do NOT mutate html/body/ytm-app overflow or height — doing
+  // that detaches the HTML5 <video> element during seeks and produces the
+  // "An error occurred" overlay. Mobile YouTube's natural watch layout is
+  // already scrollable; we only need to tame the player when it tries to
+  // grow to 100vh.
   rules.push(`
-    /* Allow the page itself to scroll. */
-    html, body, ytm-app, #app, .mobile-topbar-shadow + * {
-      height: auto !important;
-      min-height: 100% !important;
-      overflow-y: auto !important;
-      -webkit-overflow-scrolling: touch !important;
-    }
-    /* Force the inline player container to a sane 16:9 height instead of
-       100vh so the description / comments / suggestions are reachable. */
-    ytm-watch[is-watch-page] #player,
-    ytm-watch #player,
-    ytm-watch .player-container,
-    .mobile-topbar-shadow + ytm-watch #player {
-      position: relative !important;
-      height: auto !important;
+    ytm-watch #player .player-container,
+    ytm-watch .player-size,
+    ytm-watch[is-watch-page] #player .player-container {
       max-height: 56.25vw !important;  /* 16:9 of viewport width */
-      aspect-ratio: 16 / 9 !important;
     }
-    /* The watch metadata block is sometimes pushed below the fold by a
-       full-height player; pull it back into flow. */
+    /* Keep metadata visible when the page first renders. */
     ytm-watch-metadata-section-renderer,
-    ytm-item-section-renderer,
-    ytm-engagement-panel { display: block !important; }
+    ytm-item-section-renderer { display: block !important; }
   `);
 
   // Always: trim YouTube's own promo banners on mobile, including the
@@ -254,6 +242,25 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
             document.addEventListener(ev, swallow, true);
             window.addEventListener(ev, swallow, true);
           });
+          // If iOS pauses the video on background, kick it back into play.
+          // Bind once on the main <video> element when it appears.
+          var bound = false;
+          var keepPlaying = function(){
+            try {
+              var v = document.querySelector('video');
+              if (!v || bound) return;
+              bound = true;
+              v.addEventListener('pause', function(){
+                // Only auto-resume if the pause came from the system
+                // (no user gesture) and the video isn't actually ended.
+                if (!v.ended && v.currentTime > 0 && document.visibilityState !== 'hidden') {
+                  setTimeout(function(){ try { v.play(); } catch(e){} }, 50);
+                }
+              });
+            } catch(e) {}
+          };
+          keepPlaying();
+          setInterval(keepPlaying, 1500);
         } catch(e) {}
       }
       applyCss();
