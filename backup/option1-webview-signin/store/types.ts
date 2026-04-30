@@ -2,16 +2,6 @@
 
 export type ModeType = 'cinema' | 'minimal' | 'productivity';
 
-// Mirrors auth/googleAuth.ts SignedInUser — redeclared here to avoid the
-// store importing the auth module (which pulls in native code at test time).
-export interface SignedInUser {
-  id: string;
-  name: string | null;
-  email: string;
-  photo: string | null;
-  accessToken: string | null;
-}
-
 export interface AppSettings {
   mode: ModeType;
   hideShorts: boolean;
@@ -39,12 +29,10 @@ export interface AppStore {
   settings: AppSettings;
   isLoading: boolean;
   recentSearches: string[];
-  signedInUser: SignedInUser | null;
   updateSettings: (partial: Partial<AppSettings>) => void;
   resetSettings: () => void;
   addRecentSearch: (query: string) => void;
   clearRecentSearches: () => void;
-  setSignedInUser: (user: SignedInUser | null) => void;
   loadSettingsFromStorage: () => Promise<void>;
   saveSettingsToStorage: () => Promise<void>;
 }

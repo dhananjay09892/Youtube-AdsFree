@@ -31,7 +31,6 @@ export const useStore = create<AppStore>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   isLoading: true,
   recentSearches: [],
-  signedInUser: null,
 
   // Merge a partial update into current settings and auto-persist.
   updateSettings: (partial: Partial<AppSettings>): void => {
@@ -61,12 +60,6 @@ export const useStore = create<AppStore>((set, get) => ({
   clearRecentSearches: (): void => {
     set({recentSearches: []});
     void persistRecentSearches([]);
-  },
-
-  // Set or clear the currently signed-in Google user (in-memory only \u2014
-  // GoogleSignin SDK persists its own session under the hood).
-  setSignedInUser: (user): void => {
-    set({signedInUser: user});
   },
 
   // Load both settings and recent searches from AsyncStorage on app start.

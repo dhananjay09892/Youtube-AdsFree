@@ -10,15 +10,27 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {AppNavigator} from './src/navigation/AppNavigator';
 import {ErrorBoundary} from './src/components/ErrorBoundary';
 import {useStore} from './src/store/useStore';
+import {restoreUser} from './src/auth/googleAuth';
 import {colors} from './src/theme';
 
 function App(): React.ReactElement {
   const isLoading = useStore(s => s.isLoading);
   const loadSettingsFromStorage = useStore(s => s.loadSettingsFromStorage);
+  const setSignedInUser = useStore(s => s.setSignedInUser);
 
   React.useEffect(() => {
     void loadSettingsFromStorage();
-  }, [loadSettingsFromStorage]);
+    // Best-effort: restore the previously signed-in Google user. Failures
+    // are normal (no internet, never signed in, etc.) and silently ignored
+    // \u2014 the user can always tap Sign in from Settings.
+    void restoreUser()
+      .then(user => {
+        if (user) {
+          setSignedInUser(user);
+        }
+      })
+      .catch(() => undefined);
+  }, [loadSettingsFromStorage, setSignedInUser]);
 
   if (isLoading) {
     return (
