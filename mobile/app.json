@@ -1,4 +1,9 @@
 {
   "name": "AdsFreePlayer",
-  "displayName": "AdsFree Player"
+  "displayName": "AdsFree Player",
+  "extra": {
+    "eas": {
+      "projectId": "023a8867-3951-4c6d-91e4-c2a714963661"
+    }
+  }
 }

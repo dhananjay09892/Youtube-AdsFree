@@ -8,7 +8,14 @@
     "start": "react-native start",
     "test": "jest",
     "lint": "eslint . --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "apk:debug": "cd android && gradlew.bat assembleDebug",
+    "apk:release": "cd android && gradlew.bat assembleRelease",
+    "aab:release": "cd android && gradlew.bat bundleRelease",
+    "clean:android": "cd android && gradlew.bat clean",
+    "ios:eas:dev": "eas build --platform ios --profile development",
+    "ios:eas:preview": "eas build --platform ios --profile preview",
+    "ios:eas:prod": "eas build --platform ios --profile production"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.23.1",
@@ -17,6 +24,7 @@
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/stack": "^6.4.1",
+    "expo": "~50.0.0",
     "react": "18.2.0",
     "react-native": "0.73.6",
     "react-native-gesture-handler": "^2.14.1",

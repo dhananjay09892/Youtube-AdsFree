@@ -71,6 +71,65 @@ npx react-native run-ios
 
 ---
 
+## 📦 Building Installable Binaries
+
+### Android — `.apk` / `.aab` (works on Windows, macOS, Linux)
+
+Requires: JDK 17, Android SDK (or Android Studio).
+
+```powershell
+cd mobile
+
+# Debug APK — quickest, install on any device with USB debugging
+npm run apk:debug
+# Output: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+# Release APK — signed, shareable
+npm run apk:release
+# Output: mobile/android/app/build/outputs/apk/release/app-release.apk
+
+# Release AAB — for Google Play upload
+npm run aab:release
+# Output: mobile/android/app/build/outputs/bundle/release/app-release.aab
+```
+
+**Signing a release build:**
+1. Generate a keystore once:
+   ```powershell
+   keytool -genkeypair -v -storetype PKCS12 `
+     -keystore mobile/android/app/my-release-key.keystore `
+     -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Uncomment + fill the `MYAPP_UPLOAD_*` lines in `mobile/android/gradle.properties`
+   (or, better, set them in `~/.gradle/gradle.properties` so secrets stay out of git).
+3. Run `npm run apk:release`. Without these properties the release build falls
+   back to the debug keystore so the build still succeeds locally.
+
+### iOS — cloud builds via EAS (no Mac required)
+
+This is a bare React Native project, so **Expo Go does not work**. Use
+[EAS Build](https://docs.expo.dev/build/introduction/) to build `.ipa`s in the
+cloud from Windows.
+
+```powershell
+npm install -g eas-cli
+cd mobile
+eas login
+eas build:configure   # one-time: links the project to your Expo account
+
+# Simulator build (free, runs in iOS Simulator on a Mac / cloud Mac)
+npm run ios:eas:dev
+
+# Device build — needs an Apple Developer account ($99/yr) for signing
+npm run ios:eas:preview
+```
+
+Build profiles live in `mobile/eas.json`. Installing on a real iPhone requires
+either an Apple Developer account (TestFlight / ad-hoc) or sideloading via
+Xcode on a Mac with a free Apple ID (7-day signing).
+
+---
+
 ## 🎮 Keyboard Shortcuts (Extension)
 
 | Key | Action |
