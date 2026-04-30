@@ -26,21 +26,6 @@ youtube-appview/
 
 ---
 
-## 🤖 For Copilot — Start Here
-
-Read these files IN ORDER before writing any code:
-
-| Order | File | What It Contains |
-|---|---|---|
-| 1st | `.github/copilot-instructions.md` | Master rules + folder structure |
-| 2nd | `docs/01_WHAT_WE_ARE_BUILDING.md` | Big picture overview |
-| 3rd | `docs/02_BROWSER_EXTENSION.md` | Extension code details |
-| 4th | `docs/03_MOBILE_APP.md` | Mobile app code details |
-| 5th | `docs/04_DESIGN_RULES.md` | Colors, fonts, spacing |
-| 6th | `docs/05_TEST_CASES.md` | All tests that must pass |
-
----
-
 ## ⚡ Quick Start
 
 ### Build the Browser Extension

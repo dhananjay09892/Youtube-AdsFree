@@ -27,6 +27,9 @@
       }
     },
     "production": {
+      "ios": {
+        "image": "latest"
+      },
       "android": {
         "buildType": "app-bundle"
       },
@@ -36,6 +39,10 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6764890547"
+      }
+    }
   }
 }

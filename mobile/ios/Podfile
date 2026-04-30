@@ -51,5 +51,20 @@ target 'AdsFreePlayer' do
       config[:reactNativePath],
       :mac_catalyst_enabled => false
     )
+
+    # Xcode 26 removed the Swift back-deploy compatibility libraries
+    # (swiftCompatibility56, swiftCompatibilityConcurrency, swiftCompatibilityPacks).
+    # Two things together stop the linker from looking for them:
+    #   1. Bump every pod's deployment target to iOS 16.0 (Apple's floor is 15+
+    #      anyway), so the compiler stops emitting autolinks for the older shims.
+    #   2. Set SWIFT_RUNTIME_COMPATIBILITY_VERSION = None on every Swift target,
+    #      which tells the compiler "this binary does not need to back-deploy",
+    #      suppressing every remaining swiftCompatibility* autolink reference.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+        config.build_settings['SWIFT_RUNTIME_COMPATIBILITY_VERSION'] = 'None'
+      end
+    end
   end
 end
