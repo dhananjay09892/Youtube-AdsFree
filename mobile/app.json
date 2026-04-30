@@ -5,7 +5,7 @@
     "name": "AdsFree Player",
     "slug": "adsfreeplayer",
     "ios": {
-      "buildNumber": "2",
+      "buildNumber": "4",
       "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer"
     },
     "extra": {
