@@ -192,6 +192,15 @@ export function SettingsScreen(): React.ReactElement {
 
         <View style={styles.divider} />
 
+        <Text style={styles.sectionLabel}>Playback</Text>
+        <ToggleRow
+          label="Background Playback (audio in background)"
+          value={settings.backgroundPlay}
+          onChange={setBool('backgroundPlay')}
+        />
+
+        <View style={styles.divider} />
+
         <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
           <Text style={styles.resetText}>Reset to Defaults</Text>
         </TouchableOpacity>

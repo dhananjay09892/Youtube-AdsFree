@@ -21,6 +21,8 @@ export interface AppSettings {
   darkMode: boolean;
   roundedPlayer: boolean;
   textSize: 'small' | 'medium' | 'large';
+  // Keep audio playing when the app is backgrounded or the screen is off.
+  backgroundPlay: boolean;
 }
 
 export interface Video {
@@ -59,4 +61,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   darkMode: true,
   roundedPlayer: true,
   textSize: 'medium',
+  backgroundPlay: true,
 };

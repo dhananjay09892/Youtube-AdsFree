@@ -96,11 +96,39 @@ function buildHidingCss(s: AppSettings): string {
     .pivot-bar,
     ytm-pivot-bar,
     #pivot-bar,
-    /* Mini-player can also dock at the bottom of m.youtube.com — keep it
-       but make sure the gap reserved for the pivot bar collapses. */
-    .mobile-topbar-shadow ~ ytm-pivot-bar-renderer,
-    body { padding-bottom: 0 !important; }
+    .mobile-topbar-shadow ~ ytm-pivot-bar-renderer { display: none !important; }
+    body, ytm-app { padding-bottom: 0 !important; }
     ytm-app { --ytm-pivot-bar-height: 0px !important; }
+  `);
+
+  // Watch-page layout: keep the player as a 16:9 block at the top and let the
+  // metadata / description / related videos scroll naturally below it.
+  // Without this the mobile site sometimes pins the player to the full
+  // viewport so users had to enter fullscreen just to see anything else.
+  rules.push(`
+    /* Allow the page itself to scroll. */
+    html, body, ytm-app, #app, .mobile-topbar-shadow + * {
+      height: auto !important;
+      min-height: 100% !important;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+    }
+    /* Force the inline player container to a sane 16:9 height instead of
+       100vh so the description / comments / suggestions are reachable. */
+    ytm-watch[is-watch-page] #player,
+    ytm-watch #player,
+    ytm-watch .player-container,
+    .mobile-topbar-shadow + ytm-watch #player {
+      position: relative !important;
+      height: auto !important;
+      max-height: 56.25vw !important;  /* 16:9 of viewport width */
+      aspect-ratio: 16 / 9 !important;
+    }
+    /* The watch metadata block is sometimes pushed below the fold by a
+       full-height player; pull it back into flow. */
+    ytm-watch-metadata-section-renderer,
+    ytm-item-section-renderer,
+    ytm-engagement-panel { display: block !important; }
   `);
 
   // Always: trim YouTube's own promo banners on mobile, including the
@@ -142,11 +170,12 @@ function buildHidingCss(s: AppSettings): string {
 //   1. Installs/updates a <style id="appview-css"> tag with our rules.
 //   2. Re-applies on SPA navigation (YouTube is a single-page app).
 //   3. Fast-forwards any video ad that does manage to start playing.
-function buildInjectedJs(css: string): string {
+function buildInjectedJs(css: string, backgroundPlay: boolean): string {
   // JSON.stringify safely escapes the css for embedding into a JS string.
   return `(function(){
     try {
       var CSS = ${JSON.stringify(css)};
+      var BG_PLAY = ${backgroundPlay ? 'true' : 'false'};
       function applyCss(){
         var tag = document.getElementById('appview-css');
         if (!tag) {
@@ -191,19 +220,44 @@ function buildInjectedJs(css: string): string {
       }
       function killAdNow(){
         try {
-          // If a video ad is currently playing, skip it by jumping to the end
-          // and clicking any visible "Skip Ad" button.
-          var v = document.querySelector('.ad-showing video, video.html5-main-video');
-          var adShowing = document.querySelector('.ad-showing');
-          if (adShowing && v && isFinite(v.duration) && v.duration > 0) {
-            v.currentTime = v.duration;
-            v.playbackRate = 16;
+          // Only act when the player is actually showing a video ad: a
+          // skip button is visible OR an ad overlay is mounted. We must
+          // NOT touch currentTime/playbackRate of the main video — doing
+          // that broke seeking (jumping from 0 to a later timestamp would
+          // momentarily flag .ad-showing during the buffer flip and the
+          // old code would then fast-forward / error the real video).
+          var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text');
+          if (skip) { skip.click(); return; }
+          var overlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-instream-info');
+          if (!overlay) return;
+          var adVideo = document.querySelector('.video-ads .video-stream, .ad-showing video');
+          if (adVideo && isFinite(adVideo.duration) && adVideo.duration > 0 && adVideo.duration < 180) {
+            // Cap to short ad clips only; never touch a long main video.
+            adVideo.currentTime = adVideo.duration;
           }
-          var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern');
-          if (skip) skip.click();
+        } catch(e) {}
+      }
+      // Trick YouTube into thinking the page is always visible so audio
+      // keeps playing when the app is backgrounded / screen is locked.
+      // Toggled by the "Background Playback" setting (BG_PLAY constant).
+      function installBackgroundAudio(){
+        if (!BG_PLAY) return;
+        try {
+          Object.defineProperty(document, 'hidden', {configurable:true, get:function(){return false;}});
+          Object.defineProperty(document, 'webkitHidden', {configurable:true, get:function(){return false;}});
+          Object.defineProperty(document, 'visibilityState', {configurable:true, get:function(){return 'visible';}});
+          Object.defineProperty(document, 'webkitVisibilityState', {configurable:true, get:function(){return 'visible';}});
+          // Swallow visibilitychange / pagehide / blur events that the
+          // YouTube player listens to in order to auto-pause.
+          var swallow = function(e){ e.stopImmediatePropagation && e.stopImmediatePropagation(); };
+          ['visibilitychange','webkitvisibilitychange','pagehide','blur'].forEach(function(ev){
+            document.addEventListener(ev, swallow, true);
+            window.addEventListener(ev, swallow, true);
+          });
         } catch(e) {}
       }
       applyCss();
+      installBackgroundAudio();
       // Re-apply on DOM changes (lazy loading + SPA route changes).
       var mo = new MutationObserver(function(){ applyCss(); killAdNow(); killAppPrompts(); });
       mo.observe(document.documentElement, {childList:true, subtree:true});
@@ -224,7 +278,10 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
   const [loading, setLoading] = React.useState<boolean>(true);
 
   const css = React.useMemo(() => buildHidingCss(settings), [settings]);
-  const injected = React.useMemo(() => buildInjectedJs(css), [css]);
+  const injected = React.useMemo(
+    () => buildInjectedJs(css, settings.backgroundPlay),
+    [css, settings.backgroundPlay],
+  );
 
   // When settings change while a page is already open, push the new CSS in
   // without reloading the page (preserves the user's video position).
@@ -255,6 +312,10 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
         mediaPlaybackRequiresUserAction={false}
         mixedContentMode="always"
         setSupportMultipleWindows={false}
+        // Android: render via hardware layer for smoother video playback.
+        // The JS visibility shim above is what actually enables background
+        // audio (it stops YouTube's player from auto-pausing on backgrounding).
+        androidLayerType="hardware"
         onLoadEnd={() => setLoading(false)}
         onShouldStartLoadWithRequest={req => {
           // Block intent:// / market:// / store URLs that would yank the
