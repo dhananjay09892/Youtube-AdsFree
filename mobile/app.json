@@ -5,5 +5,10 @@
     "eas": {
       "projectId": "023a8867-3951-4c6d-91e4-c2a714963661"
     }
+  },
+  "expo": {
+    "ios": {
+      "buildNumber": "2"
+    }
   }
 }
