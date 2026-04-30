@@ -1,14 +1,17 @@
 {
   "name": "AdsFreePlayer",
   "displayName": "AdsFree Player",
-  "extra": {
-    "eas": {
-      "projectId": "023a8867-3951-4c6d-91e4-c2a714963661"
-    }
-  },
   "expo": {
+    "name": "AdsFree Player",
+    "slug": "adsfreeplayer",
     "ios": {
-      "buildNumber": "2"
+      "buildNumber": "2",
+      "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "023a8867-3951-4c6d-91e4-c2a714963661"
+      }
     }
   }
 }
