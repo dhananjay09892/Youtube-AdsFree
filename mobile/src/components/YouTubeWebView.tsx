@@ -215,18 +215,33 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
           var player = document.querySelector('.html5-video-player');
           var overlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-instream-info');
           var adActive = !!(player && player.classList.contains('ad-showing')) && !!overlay;
-          if (!adActive) return;
+          var mainVideo = document.querySelector('.html5-main-video, video.video-stream.html5-main-video') || document.querySelector('video');
+          if (!adActive) {
+            // Ad just ended — make sure we didn't leave the main video
+            // muted from a previous tick. We only flip muted back if WE
+            // are the ones who muted it (tracked via a data flag).
+            if (mainVideo && mainVideo.dataset && mainVideo.dataset.appviewMuted === '1') {
+              try { mainVideo.muted = false; } catch(e){}
+              try { delete mainVideo.dataset.appviewMuted; } catch(e){}
+            }
+            return;
+          }
           // 1) Try to click any visible Skip button immediately.
           var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, button[class*="skip"]');
           if (skip) { try { skip.click(); } catch(e){} }
-          // 2) Mute + fast-forward the ad video itself (NOT the main one).
-          //    We pick the <video> inside .video-ads / .ad-showing only.
-          var adVideo = document.querySelector('.video-ads video, .ad-showing video.video-stream');
-          if (adVideo) {
-            try { adVideo.muted = true; adVideo.volume = 0; } catch(e){}
-            if (isFinite(adVideo.duration) && adVideo.duration > 0 && adVideo.duration < 600) {
-              try { adVideo.currentTime = Math.max(adVideo.currentTime, adVideo.duration - 0.1); } catch(e){}
-              try { adVideo.playbackRate = 16; } catch(e){}
+          // 2) Fast-forward + mute. On mobile YouTube, ads usually share
+          //    the SAME <video> element as the main video, so we mark the
+          //    element when we mute it and unmute it when ad ends (above).
+          //    Prefer a dedicated ad <video> inside .video-ads if it exists.
+          var adVideo = document.querySelector('.video-ads video');
+          var target = adVideo || mainVideo;
+          if (target) {
+            try {
+              if (!target.muted) { target.muted = true; if (target.dataset) target.dataset.appviewMuted = '1'; }
+            } catch(e){}
+            if (isFinite(target.duration) && target.duration > 0 && target.duration < 600) {
+              try { target.currentTime = Math.max(target.currentTime, target.duration - 0.1); } catch(e){}
+              try { target.playbackRate = 16; } catch(e){}
             }
           }
         } catch(e) {}
@@ -234,6 +249,11 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
       // Trick YouTube into thinking the page is always visible so audio
       // keeps playing when the app is backgrounded / screen is locked.
       // Toggled by the "Background Playback" setting (BG_PLAY constant).
+      // NOTE: we deliberately do NOT auto-call video.play() on pause.
+      // iOS WebKit refuses play() without a user gesture while the app is
+      // in the background, and adding a pause-listener interferes with
+      // AVAudioSession's coordination — keeping things to a pure visibility
+      // shim is what reliably keeps audio playing on the lock screen.
       function installBackgroundAudio(){
         if (!BG_PLAY) return;
         try {
@@ -241,32 +261,15 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
           Object.defineProperty(document, 'webkitHidden', {configurable:true, get:function(){return false;}});
           Object.defineProperty(document, 'visibilityState', {configurable:true, get:function(){return 'visible';}});
           Object.defineProperty(document, 'webkitVisibilityState', {configurable:true, get:function(){return 'visible';}});
-          // Swallow visibilitychange / pagehide / blur events that the
-          // YouTube player listens to in order to auto-pause.
+          // Swallow visibilitychange events that YouTube listens to in
+          // order to auto-pause. Do NOT swallow pagehide/blur — WebKit
+          // and AVAudioSession use those internally to manage the audio
+          // route, and swallowing them caused audio to drop on lock.
           var swallow = function(e){ e.stopImmediatePropagation && e.stopImmediatePropagation(); };
-          ['visibilitychange','webkitvisibilitychange','pagehide','blur'].forEach(function(ev){
+          ['visibilitychange','webkitvisibilitychange'].forEach(function(ev){
             document.addEventListener(ev, swallow, true);
             window.addEventListener(ev, swallow, true);
           });
-          // If iOS pauses the video on background, kick it back into play.
-          // Bind once on the main <video> element when it appears.
-          var bound = false;
-          var keepPlaying = function(){
-            try {
-              var v = document.querySelector('video');
-              if (!v || bound) return;
-              bound = true;
-              v.addEventListener('pause', function(){
-                // Only auto-resume if the pause came from the system
-                // (no user gesture) and the video isn't actually ended.
-                if (!v.ended && v.currentTime > 0 && document.visibilityState !== 'hidden') {
-                  setTimeout(function(){ try { v.play(); } catch(e){} }, 50);
-                }
-              });
-            } catch(e) {}
-          };
-          keepPlaying();
-          setInterval(keepPlaying, 1500);
         } catch(e) {}
       }
       applyCss();
