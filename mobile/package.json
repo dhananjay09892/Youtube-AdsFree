@@ -13,9 +13,14 @@
     "apk:release": "cd android && gradlew.bat assembleRelease",
     "aab:release": "cd android && gradlew.bat bundleRelease",
     "clean:android": "cd android && gradlew.bat clean",
-    "ios:eas:dev": "eas build --platform ios --profile development",
-    "ios:eas:preview": "eas build --platform ios --profile preview",
-    "ios:eas:prod": "eas build --platform ios --profile production"
+    "eas:build:ios": "npx eas build --platform ios --profile production",
+    "eas:build:android": "npx eas build --platform android --profile production",
+    "eas:build:all": "npx eas build --platform all --profile production",
+    "eas:submit:ios": "npx eas submit --platform ios --profile production",
+    "eas:ship:ios": "npx eas build --platform ios --profile production --auto-submit",
+    "ios:eas:dev": "npx eas build --platform ios --profile development",
+    "ios:eas:preview": "npx eas build --platform ios --profile preview",
+    "ios:eas:prod": "npx eas build --platform ios --profile production"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.23.1",

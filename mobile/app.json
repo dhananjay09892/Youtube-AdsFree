@@ -4,9 +4,16 @@
   "expo": {
     "name": "AdsFree Player",
     "slug": "adsfreeplayer",
+    "version": "1.0.0",
     "ios": {
-      "buildNumber": "6",
-      "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer"
+      "buildNumber": "8",
+      "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer",
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "extra": {
       "eas": {

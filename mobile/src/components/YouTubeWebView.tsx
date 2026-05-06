@@ -11,6 +11,7 @@ import type {WebView as WebViewType} from 'react-native-webview';
 import {useStore} from '../store/useStore';
 import {AppSettings} from '../store/types';
 import {colors} from '../theme';
+import {NowPlaying} from '../modules/NowPlaying';
 
 const YT_BASE = 'https://m.youtube.com';
 
@@ -272,8 +273,76 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
           });
         } catch(e) {}
       }
+      // Playback bridge — watches the <video> element for play/pause events
+      // and reports track metadata (title, channel, thumbnail) to React Native
+      // so the native NowPlaying module can update Control Centre / lock screen.
+      // Also exposes window._rn_play / window._rn_pause so remote-control
+      // commands sent from React Native can drive the player.
+      function installPlaybackBridge(){
+        var _trackVideoId = null;
+        function getVideoId(){
+          var m = window.location.href.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+          return m ? m[1] : null;
+        }
+        function getTitle(){
+          var sels = [
+            'h2.slim-video-information-title span',
+            '.slim-video-information-title',
+            'ytm-slim-video-information-renderer h2',
+            'h1.title',
+          ];
+          for (var i = 0; i < sels.length; i++) {
+            var el = document.querySelector(sels[i]);
+            if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+          }
+          return document.title.replace(/ - YouTube$/, '').trim();
+        }
+        function getArtist(){
+          var sels = [
+            '.slim-owner-name',
+            '.ytm-video-owner-name span',
+            '.slim-video-information-subtitle a',
+            '.subhead-author',
+          ];
+          for (var i = 0; i < sels.length; i++) {
+            var el = document.querySelector(sels[i]);
+            if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+          }
+          return '';
+        }
+        function postMsg(obj){
+          try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(obj)); } catch(e){}
+        }
+        function checkTrack(){
+          var vid = getVideoId();
+          if (!vid || vid === _trackVideoId) return;
+          var title = getTitle();
+          var artist = getArtist();
+          if (!title) return; // DOM not ready yet — retry next tick
+          _trackVideoId = vid;
+          postMsg({type:'track', videoId:vid, title:title, artist:artist,
+                   artwork:'https://i.ytimg.com/vi/'+vid+'/hqdefault.jpg'});
+        }
+        function attachVideoListeners(){
+          var video = document.querySelector('video');
+          if (!video || video._appviewBridge) return;
+          video._appviewBridge = true;
+          video.addEventListener('play',    function(){ postMsg({type:'playstate',state:'play'}); });
+          video.addEventListener('playing', function(){ postMsg({type:'playstate',state:'play'}); });
+          video.addEventListener('pause',   function(){
+            var v = this;
+            // Delay slightly to ignore transient pause events during seeks.
+            setTimeout(function(){ if (v.paused) postMsg({type:'playstate',state:'pause'}); }, 300);
+          });
+        }
+        // Remote commands injected by React Native's NowPlaying remote handlers.
+        window._rn_play  = function(){ var v = document.querySelector('video'); if (v) v.play().catch(function(){}); };
+        window._rn_pause = function(){ var v = document.querySelector('video'); if (v) v.pause(); };
+        setInterval(function(){ checkTrack(); attachVideoListeners(); }, 500);
+      }
       applyCss();
       installBackgroundAudio();
+      installPlaybackBridge();
       // Re-apply on DOM changes (lazy loading + SPA route changes).
       var mo = new MutationObserver(function(){ applyCss(); killAdNow(); killAppPrompts(); });
       mo.observe(document.documentElement, {childList:true, subtree:true});
@@ -294,6 +363,9 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
   const settings = useStore(state => state.settings);
   const webRef = React.useRef<WebViewType>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
+  // Tracks whether the YouTube player is currently playing so toggle
+  // commands from Control Centre can flip the correct direction.
+  const isPlayingRef = React.useRef<boolean>(false);
 
   const css = React.useMemo(() => buildHidingCss(settings), [settings]);
   const injected = React.useMemo(
@@ -308,6 +380,40 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
       webRef.current.injectJavaScript(injected);
     }
   }, [injected]);
+
+  // Wire up Control Centre / lock screen remote-control commands.
+  // Play/pause commands from headphone remote or Control Centre are forwarded
+  // to the WebView via injected JS; NowPlaying state is kept in sync.
+  React.useEffect(() => {
+    const playSub = NowPlaying.onRemotePlay(data => {
+      if (data && data.toggle) {
+        // Headphone single-tap: flip current state.
+        if (isPlayingRef.current) {
+          isPlayingRef.current = false;
+          NowPlaying.setPlaybackState(false);
+          webRef.current?.injectJavaScript('window._rn_pause&&window._rn_pause();true;');
+        } else {
+          isPlayingRef.current = true;
+          NowPlaying.setPlaybackState(true);
+          webRef.current?.injectJavaScript('window._rn_play&&window._rn_play();true;');
+        }
+      } else {
+        isPlayingRef.current = true;
+        NowPlaying.setPlaybackState(true);
+        webRef.current?.injectJavaScript('window._rn_play&&window._rn_play();true;');
+      }
+    });
+    const pauseSub = NowPlaying.onRemotePause(() => {
+      isPlayingRef.current = false;
+      NowPlaying.setPlaybackState(false);
+      webRef.current?.injectJavaScript('window._rn_pause&&window._rn_pause();true;');
+    });
+    return () => {
+      playSub.remove();
+      pauseSub.remove();
+      NowPlaying.clear();
+    };
+  }, []);
 
   // Build full URL. Reload only when path changes (not when settings change).
   const uri = `${YT_BASE}${path}`;
@@ -352,8 +458,32 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
           }
           return true;
         }}
-        onMessage={() => {
-          /* messages used for debugging only */
+        onMessage={event => {
+          try {
+            const msg = JSON.parse(event.nativeEvent.data) as {
+              type: string;
+              videoId?: string;
+              title?: string;
+              artist?: string;
+              artwork?: string;
+              state?: string;
+            };
+            if (msg.type === 'track' && msg.title) {
+              NowPlaying.update({
+                title: msg.title,
+                artist: msg.artist ?? '',
+                artwork: msg.artwork,
+              });
+              NowPlaying.setPlaybackState(true);
+              isPlayingRef.current = true;
+            } else if (msg.type === 'playstate') {
+              const playing = msg.state === 'play';
+              isPlayingRef.current = playing;
+              NowPlaying.setPlaybackState(playing);
+            }
+          } catch {
+            // Non-JSON message (legacy debug strings) — ignore.
+          }
         }}
         style={styles.web}
       />

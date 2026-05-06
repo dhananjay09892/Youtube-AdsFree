@@ -17,7 +17,8 @@
     "preview": {
       "distribution": "internal",
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "enterpriseProvisioning": "adhoc"
       },
       "android": {
         "buildType": "apk"
@@ -29,7 +30,8 @@
     "production": {
       "autoIncrement": true,
       "ios": {
-        "image": "latest"
+        "image": "latest",
+        "buildConfiguration": "Release"
       },
       "android": {
         "buildType": "app-bundle"
@@ -42,7 +44,8 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6764890547"
+        "ascAppId": "6764890547",
+        "language": "en-US"
       }
     }
   }
