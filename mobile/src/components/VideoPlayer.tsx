@@ -46,7 +46,7 @@ export function VideoPlayer(props: VideoPlayerProps): React.ReactElement {
     `document.head.appendChild(tag);` +
     `function onYouTubeIframeAPIReady(){new YT.Player('player',{videoId:'${safeId}',` +
     `playerVars:{playsinline:1,modestbranding:1,rel:0,fs:1},` +
-    `events:{onReady:function(e){e.target.playVideo();},` +
+    `events:{onReady:function(e){e.target.playVideo();e.target.setPlaybackQuality('hd720');},` +
     `onError:function(e){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage('error:'+e.data);}}` +
     `});}</script></body></html>`;
 

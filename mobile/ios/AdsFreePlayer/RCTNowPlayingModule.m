@@ -16,7 +16,7 @@ RCT_EXPORT_MODULE()
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-  return @[@"onRemotePlay", @"onRemotePause"];
+  return @[@"onRemotePlay", @"onRemotePause", @"onRemoteNext", @"onRemotePrev"];
 }
 
 - (void)startObserving {
@@ -55,6 +55,24 @@ RCT_EXPORT_MODULE()
   [cc.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
     if (self->_hasListeners) {
       [self sendEventWithName:@"onRemotePlay" body:@{@"toggle": @YES}];
+    }
+    return MPRemoteCommandHandlerStatusSuccess;
+  }];
+
+  // Next / previous track — shown in Control Centre and on lock screen.
+  // We must explicitly enable these; they are disabled by default.
+  cc.nextTrackCommand.enabled = YES;
+  [cc.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+    if (self->_hasListeners) {
+      [self sendEventWithName:@"onRemoteNext" body:nil];
+    }
+    return MPRemoteCommandHandlerStatusSuccess;
+  }];
+
+  cc.previousTrackCommand.enabled = YES;
+  [cc.previousTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+    if (self->_hasListeners) {
+      [self sendEventWithName:@"onRemotePrev" body:nil];
     }
     return MPRemoteCommandHandlerStatusSuccess;
   }];

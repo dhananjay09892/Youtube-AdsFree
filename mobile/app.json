@@ -6,7 +6,7 @@
     "slug": "adsfreeplayer",
     "version": "1.0.0",
     "ios": {
-      "buildNumber": "8",
+      "buildNumber": "9",
       "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer",
       "supportsTablet": false,
       "infoPlist": {

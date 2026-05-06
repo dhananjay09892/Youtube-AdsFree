@@ -181,9 +181,17 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
           if (p && typeof p.getAvailableQualityLevels === 'function') {
             var levels = p.getAvailableQualityLevels();
             if (levels && levels.length) {
-              // levels[0] is the highest available (hd2160, hd1440, hd1080, ...).
-              p.setPlaybackQualityRange(levels[0], levels[0]);
-              p.setPlaybackQuality(levels[0]);
+              // Cap at 720p for speed. Pick the best available quality <= 720p.
+              // YouTube quality labels ordered high-to-low above 720p:
+              // hd2160, hd1440, hd1080, hd720, large(480), medium(360), ...
+              var preferred = ['hd720','large','medium','small','tiny'];
+              var chosen = null;
+              for (var qi = 0; qi < preferred.length; qi++) {
+                if (levels.indexOf(preferred[qi]) !== -1) { chosen = preferred[qi]; break; }
+              }
+              if (!chosen) chosen = levels[levels.length - 1];
+              p.setPlaybackQualityRange(chosen, chosen);
+              p.setPlaybackQuality(chosen);
             }
           }
         } catch(e) {}
@@ -338,6 +346,24 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
         // Remote commands injected by React Native's NowPlaying remote handlers.
         window._rn_play  = function(){ var v = document.querySelector('video'); if (v) v.play().catch(function(){}); };
         window._rn_pause = function(){ var v = document.querySelector('video'); if (v) v.pause(); };
+        // Skip to the next video: try playlist next, then autoplay "Up Next".
+        window._rn_next  = function(){
+          // Playlist: next item button
+          var btn = document.querySelector('.ytp-next-button');
+          if (btn) { btn.click(); return; }
+          // Autoplay / Up Next: first video card in the autoplay section
+          var auto = document.querySelector(
+            'ytm-compact-autoplay-renderer a.compact-media-item-image, ' +
+            'ytm-compact-autoplay-renderer .compact-media-item, ' +
+            'ytm-item-section-renderer ytm-video-with-context-renderer a.compact-media-item-image'
+          );
+          if (auto) { auto.click(); return; }
+          // Fallback: click first related video
+          var first = document.querySelector('ytm-video-with-context-renderer a.compact-media-item-image');
+          if (first) first.click();
+        };
+        // Go to previous video via browser history.
+        window._rn_prev  = function(){ window.history.back(); };
         setInterval(function(){ checkTrack(); attachVideoListeners(); }, 500);
       }
       applyCss();
@@ -408,9 +434,17 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
       NowPlaying.setPlaybackState(false);
       webRef.current?.injectJavaScript('window._rn_pause&&window._rn_pause();true;');
     });
+    const nextSub = NowPlaying.onRemoteNext(() => {
+      webRef.current?.injectJavaScript('window._rn_next&&window._rn_next();true;');
+    });
+    const prevSub = NowPlaying.onRemotePrev(() => {
+      webRef.current?.injectJavaScript('window._rn_prev&&window._rn_prev();true;');
+    });
     return () => {
       playSub.remove();
       pauseSub.remove();
+      nextSub.remove();
+      prevSub.remove();
       NowPlaying.clear();
     };
   }, []);

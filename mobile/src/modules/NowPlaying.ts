@@ -61,4 +61,16 @@ export const NowPlaying = {
     if (!emitter) return {remove: () => {}};
     return emitter.addListener('onRemotePause', cb);
   },
+
+  /** Fired when the user presses Next Track in Control Centre / lock screen. */
+  onRemoteNext(cb: () => void): Subscription {
+    if (!emitter) return {remove: () => {}};
+    return emitter.addListener('onRemoteNext', cb);
+  },
+
+  /** Fired when the user presses Previous Track in Control Centre / lock screen. */
+  onRemotePrev(cb: () => void): Subscription {
+    if (!emitter) return {remove: () => {}};
+    return emitter.addListener('onRemotePrev', cb);
+  },
 };
