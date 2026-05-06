@@ -155,6 +155,33 @@ function buildHidingCss(s: AppSettings): string {
   return rules.join('\n');
 }
 
+// Injected BEFORE any page content loads (injectedJavaScriptBeforeContentLoaded).
+// Intercepts window.ytInitialPlayerResponse before YouTube's own JS reads it
+// and clears the adPlacements array — this prevents the ad scheduler from
+// ever queuing a pre-roll, which eliminates the 3-5 s stutter on video open.
+function buildEarlyBlockerJs(): string {
+  return `(function(){
+    try {
+      function clearAds(d) {
+        if (!d || typeof d !== 'object') return d;
+        try { if (d.adPlacements) d.adPlacements = []; } catch(e){}
+        try { if (d.playerAds) d.playerAds = []; } catch(e){}
+        try { if (d.adSlots) d.adSlots = []; } catch(e){}
+        return d;
+      }
+      Object.defineProperty(window, 'ytInitialPlayerResponse', {
+        configurable: true,
+        set: function(v) {
+          Object.defineProperty(window, 'ytInitialPlayerResponse', {
+            configurable: true, writable: true, value: clearAds(v)
+          });
+        }
+      });
+    } catch(e) {}
+    true;
+  })();`;
+}
+
 // JS injected into every page. It:
 //   1. Installs/updates a <style id="appview-css"> tag with our rules.
 //   2. Re-applies on SPA navigation (YouTube is a single-page app).
@@ -176,23 +203,22 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
       }
       function bumpQuality(){
         try {
-          // Use YouTube's own player API if exposed.
           var p = document.querySelector('#movie_player, .html5-video-player');
           if (p && typeof p.getAvailableQualityLevels === 'function') {
             var levels = p.getAvailableQualityLevels();
-            if (levels && levels.length) {
-              // Cap at 720p for speed. Pick the best available quality <= 720p.
-              // YouTube quality labels ordered high-to-low above 720p:
-              // hd2160, hd1440, hd1080, hd720, large(480), medium(360), ...
-              var preferred = ['hd720','large','medium','small','tiny'];
-              var chosen = null;
-              for (var qi = 0; qi < preferred.length; qi++) {
-                if (levels.indexOf(preferred[qi]) !== -1) { chosen = preferred[qi]; break; }
-              }
-              if (!chosen) chosen = levels[levels.length - 1];
-              p.setPlaybackQualityRange(chosen, chosen);
-              p.setPlaybackQuality(chosen);
+            if (!levels || !levels.length) return;
+            // Cap at 720p. Prefer hd720, fall back lower if not available.
+            var preferred = ['hd720','large','medium','small','tiny'];
+            var chosen = null;
+            for (var qi = 0; qi < preferred.length; qi++) {
+              if (levels.indexOf(preferred[qi]) !== -1) { chosen = preferred[qi]; break; }
             }
+            if (!chosen) chosen = levels[levels.length - 1];
+            // Skip if already at the target — avoids a rebuffer every 5 s.
+            var current = (typeof p.getPlaybackQuality === 'function') ? p.getPlaybackQuality() : null;
+            if (current === chosen) return;
+            p.setPlaybackQualityRange(chosen, chosen);
+            p.setPlaybackQuality(chosen);
           }
         } catch(e) {}
       }
@@ -372,6 +398,24 @@ function buildInjectedJs(css: string, backgroundPlay: boolean): string {
       // Re-apply on DOM changes (lazy loading + SPA route changes).
       var mo = new MutationObserver(function(){ applyCss(); killAdNow(); killAppPrompts(); });
       mo.observe(document.documentElement, {childList:true, subtree:true});
+      // Dedicated attribute observer on the player: fires killAdNow() the
+      // instant YouTube adds the 'ad-showing' class — no polling delay.
+      var adClassObserver = new MutationObserver(function(muts) {
+        for (var mi = 0; mi < muts.length; mi++) {
+          var t = muts[mi].target;
+          if (t && t.classList && t.classList.contains('ad-showing')) {
+            killAdNow(); break;
+          }
+        }
+      });
+      function watchPlayerForAdClass() {
+        var player = document.querySelector('.html5-video-player');
+        if (player && !player._adClassWatched) {
+          player._adClassWatched = true;
+          adClassObserver.observe(player, {attributes: true, attributeFilter: ['class']});
+        }
+      }
+      setInterval(watchPlayerForAdClass, 800);
       // Periodic safety net (200ms instead of 1s so ads get killed faster).
       setInterval(function(){ applyCss(); killAdNow(); killAppPrompts(); }, 200);
       // Quality bump runs less often to avoid spamming the player API.
@@ -398,6 +442,8 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
     () => buildInjectedJs(css, settings.backgroundPlay),
     [css, settings.backgroundPlay],
   );
+  // earlyBlocker is static — build once, never changes.
+  const earlyBlocker = React.useRef(buildEarlyBlockerJs()).current;
 
   // When settings change while a page is already open, push the new CSS in
   // without reloading the page (preserves the user's video position).
@@ -463,6 +509,7 @@ export function YouTubeWebView(props: YouTubeWebViewProps): React.ReactElement {
         // "WKWebView" with "browser may not be secure". A clean Safari UA
         // is the most reliable workaround short of using ASWebAuthSession.
         userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+        injectedJavaScriptBeforeContentLoaded={earlyBlocker}
         injectedJavaScript={injected}
         javaScriptEnabled
         domStorageEnabled
