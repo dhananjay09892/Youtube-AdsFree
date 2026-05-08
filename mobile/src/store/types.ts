@@ -42,6 +42,10 @@ export interface AppStore {
   isLoading: boolean;
   recentSearches: string[];
   signedInUser: SignedInUser | null;
+  /** ID of the currently active site (e.g. 'youtube'). */
+  activeSiteId: string;
+  /** Most-recently-navigated URL per tab, keyed by tabId string. */
+  perSiteNavState: Record<string, {currentUrl: string}>;
   updateSettings: (partial: Partial<AppSettings>) => void;
   resetSettings: () => void;
   addRecentSearch: (query: string) => void;
@@ -49,6 +53,8 @@ export interface AppStore {
   setSignedInUser: (user: SignedInUser | null) => void;
   loadSettingsFromStorage: () => Promise<void>;
   saveSettingsToStorage: () => Promise<void>;
+  /** Called by SiteWebView on every navigation so the TabBar can read the current URL. */
+  updateTabUrl: (tabId: string, url: string) => void;
 }
 
 // Default settings used on first launch and on Reset.

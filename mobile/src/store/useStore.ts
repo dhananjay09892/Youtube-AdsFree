@@ -32,6 +32,9 @@ export const useStore = create<AppStore>((set, get) => ({
   isLoading: true,
   recentSearches: [],
   signedInUser: null,
+  activeSiteId: 'youtube',
+  perSiteNavState: {},
+
 
   // Merge a partial update into current settings and auto-persist.
   updateSettings: (partial: Partial<AppSettings>): void => {
@@ -95,5 +98,11 @@ export const useStore = create<AppStore>((set, get) => ({
   // Manual save (rarely needed — updateSettings auto-persists).
   saveSettingsToStorage: async (): Promise<void> => {
     await persistSettings(get().settings);
+  },
+
+  // Record the current URL for a tab so the TabBar can detect video playback.
+  updateTabUrl: (tabId: string, url: string): void => {
+    const current = get().perSiteNavState;
+    set({perSiteNavState: {...current, [tabId]: {currentUrl: url}}});
   },
 }));

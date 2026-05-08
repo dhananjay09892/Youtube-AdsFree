@@ -1,9 +1,8 @@
 // AppNavigator — bottom tabs for the 4 primary screens.
-// Uses emoji icons to avoid native font-link setup for vector icons during
-// initial bootstrap. Swap to react-native-vector-icons when fonts are linked.
+// The custom TabBar auto-hides when a video is playing and slides back in
+// on swipe-up. Icons use emoji to avoid native font-link setup.
 
 import React from 'react';
-import {Text} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 
@@ -11,6 +10,7 @@ import {HomeScreen} from '../screens/HomeScreen';
 import {SearchScreen} from '../screens/SearchScreen';
 import {WatchScreen} from '../screens/WatchScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
+import {TabBar} from './TabBar';
 import {colors, typography} from '../theme';
 
 export type RootTabParamList = {
@@ -21,13 +21,6 @@ export type RootTabParamList = {
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
-
-function makeIcon(active: string, inactive: string) {
-  // eslint-disable-next-line react/display-name
-  return ({focused}: {focused: boolean; color: string; size: number}): React.ReactElement => (
-    <Text style={{fontSize: 22}}>{focused ? active : inactive}</Text>
-  );
-}
 
 export function AppNavigator(): React.ReactElement {
   return (
@@ -44,14 +37,11 @@ export function AppNavigator(): React.ReactElement {
         },
       }}>
       <Tab.Navigator
+        tabBar={props => <TabBar {...props} />}
+        // Keep every screen mounted so switching tabs never kills the WebView.
+        detachInactiveScreens={false}
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            backgroundColor: colors.background.secondary,
-            borderTopColor: colors.border.subtle,
-            borderTopWidth: 1,
-            height: 60,
-          },
           tabBarActiveTintColor: colors.accent.red,
           tabBarInactiveTintColor: colors.text.tertiary,
           tabBarLabelStyle: {
@@ -61,30 +51,22 @@ export function AppNavigator(): React.ReactElement {
         <Tab.Screen
           name="Home"
           component={HomeScreen}
-          options={{
-            tabBarIcon: makeIcon('🏠', '🏚'),
-          }}
+          options={{unmountOnBlur: false}}
         />
         <Tab.Screen
           name="Search"
           component={SearchScreen}
-          options={{
-            tabBarIcon: makeIcon('🔎', '🔍'),
-          }}
+          options={{unmountOnBlur: false}}
         />
         <Tab.Screen
           name="Watch"
           component={WatchScreen}
-          options={{
-            tabBarIcon: makeIcon('▶️', '⏵'),
-          }}
+          options={{unmountOnBlur: false}}
         />
         <Tab.Screen
           name="Settings"
           component={SettingsScreen}
-          options={{
-            tabBarIcon: makeIcon('⚙️', '⚙'),
-          }}
+          options={{unmountOnBlur: false}}
         />
       </Tab.Navigator>
     </NavigationContainer>

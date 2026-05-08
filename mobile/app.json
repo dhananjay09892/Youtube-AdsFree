@@ -5,6 +5,11 @@
     "name": "AdsFree Player",
     "slug": "adsfreeplayer",
     "version": "1.0.0",
+    "orientation": "portrait",
+    "splash": {
+      "backgroundColor": "#121212",
+      "resizeMode": "contain"
+    },
     "ios": {
       "buildNumber": "10",
       "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer",
@@ -13,6 +18,13 @@
         "UIBackgroundModes": [
           "audio"
         ]
+      }
+    },
+    "android": {
+      "versionCode": 10,
+      "package": "org.reactjs.native.example.AdsFreePlayer",
+      "adaptiveIcon": {
+        "backgroundColor": "#121212"
       }
     },
     "extra": {
