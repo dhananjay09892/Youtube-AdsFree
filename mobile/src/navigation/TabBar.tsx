@@ -50,11 +50,11 @@ const SPRING_CONFIG = {damping: 20, stiffness: 200, mass: 0.8};
 const AUTO_HIDE_MS = 3000;
 
 // Tab icon + label definitions keyed by route name.
+// Only YouTube and YTMusic are rendered as full-width tabs; Settings appears
+// as a compact gear icon on the right edge of the bar.
 const TAB_META: Record<string, {active: string; inactive: string; label: string}> = {
-  Home: {active: '🏠', inactive: '🏚', label: 'Home'},
-  Search: {active: '🔎', inactive: '🔍', label: 'Search'},
-  Watch: {active: '▶️', inactive: '⏵', label: 'Watch'},
-  Settings: {active: '⚙️', inactive: '⚙', label: 'Settings'},
+  YouTube: {active: '▶️', inactive: '▷', label: 'YouTube'},
+  YTMusic: {active: '🎵', inactive: '♪', label: 'YT Music'},
 };
 
 // ---------------------------------------------------------------------------
@@ -145,13 +145,19 @@ export function TabBar({
 
   const safeBottom = insets?.bottom ?? 0;
 
+  // Split routes: YouTube + YTMusic are full tabs; Settings is a gear icon.
+  const mainRoutes = state.routes.filter(r => r.name !== 'Settings');
+  const settingsIndex = state.routes.findIndex(r => r.name === 'Settings');
+  const settingsFocused = state.index === settingsIndex;
+
   return (
     <GestureDetector gesture={swipeUpGesture}>
       <Animated.View
         style={[styles.container, {paddingBottom: safeBottom}, animatedStyle]}
         onLayout={onLayout}>
-        {state.routes.map((route, index) => {
-          const isFocused = state.index === index;
+        {mainRoutes.map(route => {
+          const routeIndex = state.routes.findIndex(r => r.key === route.key);
+          const isFocused = state.index === routeIndex;
           const meta = TAB_META[route.name] ?? {
             active: '●',
             inactive: '○',
@@ -198,6 +204,18 @@ export function TabBar({
             </Pressable>
           );
         })}
+
+        {/* Settings — compact gear icon, not a full tab */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          accessibilityState={settingsFocused ? {selected: true} : {}}
+          onPress={() => navigation.navigate('Settings')}
+          style={styles.gearBtn}>
+          <Text style={[styles.gearIcon, {color: settingsFocused ? colors.accent.red : colors.text.tertiary}]}>
+            ⚙️
+          </Text>
+        </Pressable>
       </Animated.View>
     </GestureDetector>
   );
@@ -235,5 +253,16 @@ const styles = StyleSheet.create({
   label: {
     fontSize: typography.fontSize.xs,
     marginTop: 2,
+  },
+  // Compact gear icon — narrower than a full tab
+  gearBtn: {
+    width: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  gearIcon: {
+    fontSize: 20,
+    lineHeight: 26,
   },
 });

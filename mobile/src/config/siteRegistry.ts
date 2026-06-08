@@ -76,12 +76,13 @@ export interface SiteConfig {
 // ---------------------------------------------------------------------------
 
 import {youtubeConfig} from './youtube.site';
+import {ytMusicConfig} from './ytmusic.site';
 
 /**
  * Ordered list of all supported sites. The first entry is the default.
  * The tab bar renders one entry per site.
  */
-export const SITE_REGISTRY: SiteConfig[] = [youtubeConfig];
+export const SITE_REGISTRY: SiteConfig[] = [youtubeConfig, ytMusicConfig];
 
 /** Convenience lookup by id. */
 export function getSiteById(id: string): SiteConfig | undefined {

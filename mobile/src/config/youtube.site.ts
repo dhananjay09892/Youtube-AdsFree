@@ -166,41 +166,8 @@ export const youtubeConfig: SiteConfig = {
     `,
   },
 
-  // Intercept fetch so that every /youtubei/v1/player API call (SPA navigation,
-  // not just the initial page load) has its ad payloads stripped before YouTube
-  // JS processes the response.
-  earlyJs: `
-    (function(){
-      try {
-        var _origFetch = window.fetch;
-        window.fetch = function(input, init) {
-          var url = typeof input === 'string' ? input
-                  : (input && typeof input.url === 'string' ? input.url : '');
-          var isPlayerApi = url.indexOf('/youtubei/v1/player') !== -1
-                         || url.indexOf('get_video_info') !== -1;
-          var promise = _origFetch.apply(this, arguments);
-          if (!isPlayerApi) return promise;
-          return promise.then(function(resp) {
-            try {
-              return resp.clone().json().then(function(json) {
-                try { json.adPlacements          = []; } catch(e){}
-                try { json.playerAds             = []; } catch(e){}
-                try { json.adSlots               = []; } catch(e){}
-                try { json.adBreaks              = []; } catch(e){}
-                try { json.adPodMetadata         = null; } catch(e){}
-                try { if (json.adBreakHeartbeatParams !== undefined)
-                        json.adBreakHeartbeatParams = ''; } catch(e){}
-                return new Response(JSON.stringify(json), {
-                  status: resp.status,
-                  statusText: resp.statusText,
-                  headers: {'content-type': 'application/json'},
-                });
-              }).catch(function() { return resp; });
-            } catch(e) { return resp; }
-          });
-        };
-      } catch(e){}
-      true;
-    })();
-  `,
+  // Fetch interception (strips adPlacements / playerAds from every
+  // /youtubei/v1/player call) is now handled generically in SiteWebView's
+  // buildEarlyJs so all sites benefit without duplication.
+  earlyJs: undefined,
 };

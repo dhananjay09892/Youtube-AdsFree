@@ -1,22 +1,20 @@
-// AppNavigator — bottom tabs for the 4 primary screens.
-// The custom TabBar auto-hides when a video is playing and slides back in
-// on swipe-up. Icons use emoji to avoid native font-link setup.
+// AppNavigator — two main tabs (YouTube + YT Music) plus a Settings route
+// accessible via the gear icon in the TabBar. Search and Watch are replaced
+// by each site's own built-in search / library UI inside the WebView.
 
 import React from 'react';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 
 import {HomeScreen} from '../screens/HomeScreen';
-import {SearchScreen} from '../screens/SearchScreen';
-import {WatchScreen} from '../screens/WatchScreen';
+import {YTMusicScreen} from '../screens/YTMusicScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
 import {TabBar} from './TabBar';
 import {colors, typography} from '../theme';
 
 export type RootTabParamList = {
-  Home: undefined;
-  Search: undefined;
-  Watch: undefined;
+  YouTube: undefined;
+  YTMusic: undefined;
   Settings: undefined;
 };
 
@@ -49,20 +47,17 @@ export function AppNavigator(): React.ReactElement {
           },
         }}>
         <Tab.Screen
-          name="Home"
+          name="YouTube"
           component={HomeScreen}
           options={{unmountOnBlur: false}}
         />
         <Tab.Screen
-          name="Search"
-          component={SearchScreen}
-          options={{unmountOnBlur: false}}
+          name="YTMusic"
+          component={YTMusicScreen}
+          options={{unmountOnBlur: false, tabBarLabel: 'YT Music'}}
         />
-        <Tab.Screen
-          name="Watch"
-          component={WatchScreen}
-          options={{unmountOnBlur: false}}
-        />
+        {/* Settings is not rendered as a visible tab — the TabBar shows a
+            gear icon that navigates here instead. */}
         <Tab.Screen
           name="Settings"
           component={SettingsScreen}
@@ -72,3 +67,4 @@ export function AppNavigator(): React.ReactElement {
     </NavigationContainer>
   );
 }
+

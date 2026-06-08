@@ -112,6 +112,42 @@ function buildEarlyJs(site: SiteConfig): string {
           });
         }
       });
+      // Intercept fetch so that /youtubei/v1/player responses (fired on every
+      // SPA navigation, not just the initial page load) have their ad payloads
+      // stripped before YouTube/YT-Music JS processes them. This is the primary
+      // fix for pre-roll ads appearing when the user starts a new video or
+      // presses next from the Control Centre.
+      try {
+        var _origFetch = window.fetch;
+        window.fetch = function(input, init) {
+          var url = typeof input === 'string' ? input
+                  : (input && typeof input.url === 'string' ? input.url : '');
+          var isPlayerApi = url.indexOf('/youtubei/v1/player') !== -1
+                         || url.indexOf('get_video_info') !== -1;
+          var promise = _origFetch.apply(this, arguments);
+          if (!isPlayerApi) return promise;
+          return promise.then(function(resp) {
+            try {
+              return resp.clone().json().then(function(json) {
+                try { json.adPlacements         = []; } catch(e){}
+                try { json.playerAds            = []; } catch(e){}
+                try { json.adSlots              = []; } catch(e){}
+                try { json.adBreaks             = []; } catch(e){}
+                try { json.adPodMetadata        = null; } catch(e){}
+                try {
+                  if (json.adBreakHeartbeatParams !== undefined)
+                    json.adBreakHeartbeatParams = '';
+                } catch(e){}
+                return new Response(JSON.stringify(json), {
+                  status: resp.status,
+                  statusText: resp.statusText,
+                  headers: {'content-type': 'application/json'},
+                });
+              }).catch(function() { return resp; });
+            } catch(e) { return resp; }
+          });
+        };
+      } catch(e) {}
     } catch(e) {}
     true;
   })();`;
@@ -288,6 +324,16 @@ function buildInjectedJs(
         }, 10000);
         document.addEventListener('yt-navigate-finish', function() {
           _trackVideoId = null;
+          // Burst-kill ads for ~5 s after every SPA navigation so any
+          // pre-roll ad that starts loading on the new video is silenced
+          // before the user can hear it (covers the "next song" control-
+          // centre bug where ads slip in between tracks).
+          killAdNow();
+          var _bc = 0;
+          var _bt = setInterval(function(){
+            killAdNow();
+            if (++_bc >= 25) { clearInterval(_bt); }
+          }, 200);
           setTimeout(function(){ checkTrack(); attachVideoListeners(); }, 300);
         });
         setInterval(function(){ checkTrack(); attachVideoListeners(); }, 500);
@@ -303,7 +349,10 @@ function buildInjectedJs(
       var adClassObserver = new MutationObserver(function(muts) {
         for (var mi = 0; mi < muts.length; mi++) {
           var t = muts[mi].target;
-          if (t && t.classList && t.classList.contains('ad-showing')) {
+          if (t && t.classList && (
+            t.classList.contains('ad-showing') ||
+            t.classList.contains('ad-interrupting')
+          )) {
             killAdNow(); break;
           }
         }
