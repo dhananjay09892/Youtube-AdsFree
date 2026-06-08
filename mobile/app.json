@@ -11,7 +11,7 @@
       "resizeMode": "contain"
     },
     "ios": {
-      "buildNumber": "12",
+      "buildNumber": "13",
       "bundleIdentifier": "org.reactjs.native.example.AdsFreePlayer",
       "supportsTablet": false,
       "infoPlist": {
