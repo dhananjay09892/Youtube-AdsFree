@@ -122,11 +122,16 @@ export const youtubeConfig: SiteConfig = {
 
     // Fast-forward + mute ad video. Tries skip button first, then
     // jumps currentTime to end and sets playbackRate to 16.
+    // adActive no longer requires the overlay element — mobile YouTube often
+    // omits .ytp-ad-player-overlay while still setting .ad-showing /
+    // .ad-interrupting on the player container.
     killAdJs: `
       (function(){
         var player = document.querySelector('.html5-video-player');
-        var overlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-instream-info');
-        var adActive = !!(player && player.classList.contains('ad-showing')) && !!overlay;
+        var adActive = !!(player && (
+          player.classList.contains('ad-showing') ||
+          player.classList.contains('ad-interrupting')
+        ));
         var mainVideo = document.querySelector('.html5-main-video, video.video-stream.html5-main-video') || document.querySelector('video');
         if (!adActive) {
           if (mainVideo && mainVideo.dataset && mainVideo.dataset.appviewMuted === '1') {
@@ -135,9 +140,18 @@ export const youtubeConfig: SiteConfig = {
           }
           return;
         }
-        var skip = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, button[class*="skip"]');
+        var skip = document.querySelector([
+          '.ytp-ad-skip-button',
+          '.ytp-skip-ad-button',
+          '.ytp-ad-skip-button-modern',
+          '.ytp-ad-skip-button-text',
+          '.ytp-ad-overlay-close-button',
+          'button[class*="skip-ad"]',
+          'button[class*="skipAd"]',
+          '[id*="skip-ad"]',
+        ].join(', '));
         if (skip) { try { skip.click(); } catch(e){} }
-        var adVideo = document.querySelector('.video-ads video');
+        var adVideo = document.querySelector('.video-ads video, .ad-showing video, .ad-interrupting video');
         var target = adVideo || mainVideo;
         if (target) {
           try {
@@ -152,7 +166,41 @@ export const youtubeConfig: SiteConfig = {
     `,
   },
 
-  // No site-specific earlyJs needed — the generic SiteWebView early blocker
-  // (ytInitialPlayerResponse + ytcfg patching) covers YouTube fully.
-  earlyJs: undefined,
+  // Intercept fetch so that every /youtubei/v1/player API call (SPA navigation,
+  // not just the initial page load) has its ad payloads stripped before YouTube
+  // JS processes the response.
+  earlyJs: `
+    (function(){
+      try {
+        var _origFetch = window.fetch;
+        window.fetch = function(input, init) {
+          var url = typeof input === 'string' ? input
+                  : (input && typeof input.url === 'string' ? input.url : '');
+          var isPlayerApi = url.indexOf('/youtubei/v1/player') !== -1
+                         || url.indexOf('get_video_info') !== -1;
+          var promise = _origFetch.apply(this, arguments);
+          if (!isPlayerApi) return promise;
+          return promise.then(function(resp) {
+            try {
+              return resp.clone().json().then(function(json) {
+                try { json.adPlacements          = []; } catch(e){}
+                try { json.playerAds             = []; } catch(e){}
+                try { json.adSlots               = []; } catch(e){}
+                try { json.adBreaks              = []; } catch(e){}
+                try { json.adPodMetadata         = null; } catch(e){}
+                try { if (json.adBreakHeartbeatParams !== undefined)
+                        json.adBreakHeartbeatParams = ''; } catch(e){}
+                return new Response(JSON.stringify(json), {
+                  status: resp.status,
+                  statusText: resp.statusText,
+                  headers: {'content-type': 'application/json'},
+                });
+              }).catch(function() { return resp; });
+            } catch(e) { return resp; }
+          });
+        };
+      } catch(e){}
+      true;
+    })();
+  `,
 };
