@@ -6,7 +6,7 @@
 // youtubeConfig here — no other callers need to change.
 
 import React from 'react';
-import {ActivityIndicator, AppState, StyleSheet, View} from 'react-native';
+import {ActivityIndicator, AppState, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebView as WebViewType} from 'react-native-webview';
 
@@ -295,26 +295,66 @@ function buildInjectedJs(
             var v = this;
             setTimeout(function(){ if (v.paused) postMsg({type:'playstate',state:'pause'}); }, 300);
           });
+          // When a video ends naturally, burst-kill any pre-roll that loads
+          // for the autoplay next video before the user can hear it.
+          video.addEventListener('ended', function(){
+            killAdNow();
+            var _ec = 0;
+            var _et = setInterval(function(){
+              killAdNow();
+              if (++_ec >= 25) { clearInterval(_et); }
+            }, 200);
+          });
         }
-        window._rn_play  = function(){ var v = document.querySelector('video'); if (v) v.play().catch(function(){}); };
-        window._rn_pause = function(){ var v = document.querySelector('video'); if (v) v.pause(); };
-        window._rn_next  = function(){
-          var btn = document.querySelector('.ytp-next-button');
-          if (btn) { btn.click(); return; }
-          var auto = document.querySelector(
-            'ytm-compact-autoplay-renderer a.compact-media-item-image, ' +
-            'ytm-compact-autoplay-renderer .compact-media-item-image, ' +
-            'ytm-compact-autoplay-renderer a[href], ' +
-            'ytm-autoplay-video-renderer a, ' +
-            'ytm-endscreen-element-renderer a, ' +
-            '.ytp-endscreen-element[data-title]'
-          );
-          if (auto) { auto.click(); return; }
-          var first = document.querySelector(
-            'ytm-video-with-context-renderer a.compact-media-item-image, ' +
-            'ytm-video-with-context-renderer a[href*="/watch"]'
-          );
-          if (first) first.click();
+        // Expose killAdNow so ad-hoc injectJavaScript calls (e.g. onRemoteNext) can reach it.
+        window._rn_killad = killAdNow;
+        window._rn_play   = function(){ var v = document.querySelector('video'); if (v) v.play().catch(function(){}); };
+        window._rn_pause  = function(){ var v = document.querySelector('video'); if (v) v.pause(); };
+        // _rn_next_go — pure navigation; assumes any ad is already cleared.
+        window._rn_next_go = function(){
+          // Mobile-first selector list, then desktop fallbacks.
+          var btn = document.querySelector([
+            'ytm-next-button-renderer button',
+            'button[aria-label="Next video"]',
+            'button[aria-label="Next"]',
+            '.ytp-next-button',
+            '[data-tooltip-text*="Next"]',
+          ].join(', '));
+          if (btn) { try { btn.click(); } catch(e){} return; }
+          // Autoplay / end-screen overlay
+          var auto = document.querySelector([
+            'ytm-compact-autoplay-renderer a',
+            'ytm-autoplay-video-renderer a',
+            'ytm-endscreen-element-renderer a[href*="/watch"]',
+            '.ytp-endscreen-element[data-title]',
+            'a.ytp-suggestion-set',
+          ].join(', '));
+          if (auto) { try { auto.click(); } catch(e){} return; }
+          // First recommended video below the player
+          var first = document.querySelector([
+            'ytm-video-with-context-renderer a.compact-media-item-image',
+            'ytm-video-with-context-renderer a[href*="/watch"]',
+            'ytm-compact-video-renderer a[href*="/watch"]',
+            'ytm-rich-item-renderer a[href*="/watch"]',
+          ].join(', '));
+          if (first) { try { first.click(); } catch(e){} }
+        };
+        // _rn_next — called by Control Centre / lock screen next command.
+        // Kills any active pre-roll ad first; only navigates once the ad is
+        // cleared (or if no ad is active).
+        window._rn_next = function(){
+          var player = document.querySelector('.html5-video-player');
+          var adActive = !!(player && (
+            player.classList.contains('ad-showing') ||
+            player.classList.contains('ad-interrupting')
+          ));
+          if (adActive) {
+            killAdNow();
+            // Give the skip/fast-forward 700 ms to take effect, then navigate.
+            setTimeout(function(){ window._rn_next_go(); }, 700);
+            return;
+          }
+          window._rn_next_go();
         };
         window._rn_prev  = function(){ window.history.back(); };
         // Heartbeat so RN can detect if the background audio shim has been
@@ -480,7 +520,11 @@ export function SiteWebView({
       webRef.current?.injectJavaScript('window._rn_pause&&window._rn_pause();true;');
     });
     const nextSub = NowPlaying.onRemoteNext(() => {
-      webRef.current?.injectJavaScript('window._rn_next&&window._rn_next();true;');
+      // Kill any active ad first, wait for the skip to register, then navigate.
+      // This fixes the Control Centre "next" landing on an ad and appearing stuck.
+      webRef.current?.injectJavaScript(
+        '(function(){if(window._rn_killad)window._rn_killad();setTimeout(function(){if(window._rn_next)window._rn_next();},700);true;})();',
+      );
     });
     const prevSub = NowPlaying.onRemotePrev(() => {
       webRef.current?.injectJavaScript('window._rn_prev&&window._rn_prev();true;');
@@ -584,6 +628,14 @@ export function SiteWebView({
         }}
         style={styles.web}
       />
+      {/* Reload button — lets users force-refresh a stuck or broken page */}
+      <TouchableOpacity
+        style={styles.reloadBtn}
+        onPress={() => { setLoading(true); webRef.current?.reload(); }}
+        activeOpacity={0.6}
+        accessibilityLabel="Reload page">
+        <Text style={styles.reloadIcon}>{`\u21BA`}</Text>
+      </TouchableOpacity>
       {loading ? (
         <View style={styles.loaderOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.status.loading} />
@@ -607,5 +659,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background.primary,
+  },
+  // Small semi-transparent reload pill anchored to the top-right of the WebView.
+  // Positioned above the WebView surface so it always catches taps.
+  reloadBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  reloadIcon: {
+    color: '#ffffff',
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: 'bold',
+    includeFontPadding: false,
   },
 });
