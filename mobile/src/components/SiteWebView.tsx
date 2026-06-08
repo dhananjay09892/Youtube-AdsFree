@@ -516,6 +516,8 @@ export function SiteWebView({
 }: SiteWebViewProps): React.ReactElement {
   const settings = useStore(state => state.settings);
   const updateTabUrl = useStore(state => state.updateTabUrl);
+  const pendingNav = useStore(state => tabId ? state.pendingNavigation[tabId] : undefined);
+  const clearNavigation = useStore(state => state.clearNavigation);
   const webRef = React.useRef<WebViewType>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [crashKey, setCrashKey] = React.useState<number>(0);
@@ -557,6 +559,17 @@ export function SiteWebView({
       if (bgReinjectTimerRef.current) clearInterval(bgReinjectTimerRef.current);
     };
   }, [settings.backgroundPlay, injected]);
+
+  // Consume pending navigation from the store (triggered by SiteHeader search).
+  React.useEffect(() => {
+    if (!pendingNav || !tabId) {
+      return;
+    }
+    webRef.current?.injectJavaScript(
+      `(function(){try{window.location.href=${JSON.stringify(pendingNav)};}catch(e){}}());true;`,
+    );
+    clearNavigation(tabId);
+  }, [pendingNav, tabId, clearNavigation]);
 
   // When the app returns to foreground after being backgrounded, re-inject the
   // full JS bundle and force the video to resume. This covers two Android issues:

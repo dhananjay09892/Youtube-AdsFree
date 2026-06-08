@@ -55,6 +55,12 @@ export interface AppStore {
   saveSettingsToStorage: () => Promise<void>;
   /** Called by SiteWebView on every navigation so the TabBar can read the current URL. */
   updateTabUrl: (tabId: string, url: string) => void;
+  /** Pending URL navigations keyed by tabId — consumed by SiteWebView. */
+  pendingNavigation: Record<string, string>;
+  /** Request the SiteWebView for the given tabId to navigate to a URL. */
+  requestNavigation: (tabId: string, url: string) => void;
+  /** Called by SiteWebView after it consumes a pending navigation. */
+  clearNavigation: (tabId: string) => void;
 }
 
 // Default settings used on first launch and on Reset.

@@ -105,4 +105,17 @@ export const useStore = create<AppStore>((set, get) => ({
     const current = get().perSiteNavState;
     set({perSiteNavState: {...current, [tabId]: {currentUrl: url}}});
   },
+
+  // Pending navigation — SiteWebView consumes this to navigate without reloading.
+  pendingNavigation: {},
+  requestNavigation: (tabId: string, url: string): void => {
+    set(s => ({pendingNavigation: {...s.pendingNavigation, [tabId]: url}}));
+  },
+  clearNavigation: (tabId: string): void => {
+    set(s => {
+      const next = {...s.pendingNavigation};
+      delete next[tabId];
+      return {pendingNavigation: next};
+    });
+  },
 }));
