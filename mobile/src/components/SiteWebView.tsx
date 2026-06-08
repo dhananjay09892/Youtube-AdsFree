@@ -68,17 +68,37 @@ function buildCssFromRules(rules: FilterRuleSet, s: AppSettings): string {
 // ---------------------------------------------------------------------------
 
 function buildEarlyJs(site: SiteConfig): string {
-  // Generic ad-data interceptors (work on any YT-like site)
+  // Parity with Brave's in-page ad blocking strategy:
+  //  1. clearAds() — strips every known ad payload key from any API response object
+  //  2. ytInitialPlayerResponse + ytInitialData + ytcfg patched before YouTube reads them
+  //  3. fetch interception — cleans /youtubei/v1/player SPA responses
+  //  4. XHR constructor replacement — same for XMLHttpRequest fallback paths
+  //     (our listener is registered FIRST so we shadow responseText before YouTube reads it)
+  //  5. sendBeacon blocking — silently drops ad-impression pings to known ad domains
   const generic = `(function(){
     try {
+      // ── clearAds ─────────────────────────────────────────────────────────
+      // Strips every known ad payload key from an API response object.
+      // Matches the full set that Brave's scriptlets clear.
+      var AD_KEYS = [
+        'adPlacements','playerAds','adSlots','adBreaks','adPodMetadata',
+        'adBreakHeartbeatParams','adMessagesRenderer','adPreviewRenderer',
+        'adInfoRenderer','adPlacementConfig','adBreakConfig',
+        'adBreakOffsetMsec','adTimeOffset',
+      ];
       function clearAds(d) {
         if (!d || typeof d !== 'object') return d;
-        try { if (d.adPlacements) d.adPlacements = []; } catch(e){}
-        try { if (d.playerAds) d.playerAds = []; } catch(e){}
-        try { if (d.adSlots) d.adSlots = []; } catch(e){}
-        try { if (d.adBreakHeartbeatParams !== undefined) d.adBreakHeartbeatParams = ''; } catch(e){}
+        for (var i = 0; i < AD_KEYS.length; i++) {
+          var k = AD_KEYS[i];
+          try {
+            if (d[k] !== undefined)
+              d[k] = Array.isArray(d[k]) ? [] : (typeof d[k] === 'string' ? '' : null);
+          } catch(e) {}
+        }
         return d;
       }
+
+      // ── 1. ytInitialPlayerResponse (inline page-load data) ───────────────
       Object.defineProperty(window, 'ytInitialPlayerResponse', {
         configurable: true,
         set: function(v) {
@@ -87,6 +107,19 @@ function buildEarlyJs(site: SiteConfig): string {
           });
         }
       });
+
+      // ── 2. ytInitialData (home / search / feed ad slots) ─────────────────
+      Object.defineProperty(window, 'ytInitialData', {
+        configurable: true,
+        set: function(v) {
+          try { clearAds(v); } catch(e) {}
+          Object.defineProperty(window, 'ytInitialData', {
+            configurable: true, writable: true, value: v
+          });
+        }
+      });
+
+      // ── 3. ytcfg (config-level ad flags written at runtime) ──────────────
       function patchYtcfg() {
         if (!window.ytcfg || !window.ytcfg.set || window.ytcfg._appviewPatched) return false;
         var orig = window.ytcfg.set;
@@ -112,11 +145,9 @@ function buildEarlyJs(site: SiteConfig): string {
           });
         }
       });
-      // Intercept fetch so that /youtubei/v1/player responses (fired on every
-      // SPA navigation, not just the initial page load) have their ad payloads
-      // stripped before YouTube/YT-Music JS processes them. This is the primary
-      // fix for pre-roll ads appearing when the user starts a new video or
-      // presses next from the Control Centre.
+
+      // ── 4. fetch interception ────────────────────────────────────────────
+      // Strips ad payloads from every /youtubei/v1/player response (SPA nav).
       try {
         var _origFetch = window.fetch;
         window.fetch = function(input, init) {
@@ -129,15 +160,7 @@ function buildEarlyJs(site: SiteConfig): string {
           return promise.then(function(resp) {
             try {
               return resp.clone().json().then(function(json) {
-                try { json.adPlacements         = []; } catch(e){}
-                try { json.playerAds            = []; } catch(e){}
-                try { json.adSlots              = []; } catch(e){}
-                try { json.adBreaks             = []; } catch(e){}
-                try { json.adPodMetadata        = null; } catch(e){}
-                try {
-                  if (json.adBreakHeartbeatParams !== undefined)
-                    json.adBreakHeartbeatParams = '';
-                } catch(e){}
+                clearAds(json);
                 return new Response(JSON.stringify(json), {
                   status: resp.status,
                   statusText: resp.statusText,
@@ -148,9 +171,69 @@ function buildEarlyJs(site: SiteConfig): string {
           });
         };
       } catch(e) {}
+
+      // ── 5. XHR interception ──────────────────────────────────────────────
+      // YouTube sometimes uses XMLHttpRequest instead of fetch (older code
+      // paths, retry logic). We replace the XHR constructor so our
+      // readystatechange listener is registered FIRST — before YouTube's —
+      // letting us shadow responseText/response before YouTube reads them.
+      try {
+        var NativeXHR = window.XMLHttpRequest;
+        function PatchedXHR() {
+          var _xhr = new NativeXHR();
+          var _shouldPatch = false;
+          // Our listener is added here, before any YouTube code adds theirs.
+          _xhr.addEventListener('readystatechange', function() {
+            if (_xhr.readyState !== 4 || !_shouldPatch) return;
+            try {
+              var json = JSON.parse(_xhr.responseText);
+              clearAds(json);
+              var s = JSON.stringify(json);
+              Object.defineProperty(_xhr, 'responseText', {configurable:true, get:function(){return s;}});
+              Object.defineProperty(_xhr, 'response',     {configurable:true, get:function(){return s;}});
+            } catch(e) {}
+          });
+          var _origOpen = _xhr.open.bind(_xhr);
+          _xhr.open = function(method, url) {
+            var u = url || '';
+            _shouldPatch = u.indexOf('/youtubei/v1/player') !== -1
+                        || u.indexOf('get_video_info') !== -1;
+            return _origOpen.apply(null, arguments);
+          };
+          return _xhr; // returning an object from a constructor overrides the default new-target
+        }
+        PatchedXHR.prototype = NativeXHR.prototype;
+        Object.getOwnPropertyNames(NativeXHR).forEach(function(k) {
+          try {
+            var d = Object.getOwnPropertyDescriptor(NativeXHR, k);
+            if (d) Object.defineProperty(PatchedXHR, k, d);
+          } catch(e) {}
+        });
+        window.XMLHttpRequest = PatchedXHR;
+      } catch(e) {}
+
+      // ── 6. sendBeacon blocking ───────────────────────────────────────────
+      // Silently drops ad-impression pings so the ad server is never notified
+      // that an ad was "seen" (matches Brave's beacon-blocking behaviour).
+      try {
+        var _origBeacon = navigator.sendBeacon.bind(navigator);
+        navigator.sendBeacon = function(url, data) {
+          var u = url || '';
+          if (u.indexOf('doubleclick') !== -1 ||
+              u.indexOf('googleadservices') !== -1 ||
+              u.indexOf('/api/stats/ads') !== -1 ||
+              u.indexOf('/ptracking') !== -1 ||
+              u.indexOf('/pagead/') !== -1 ||
+              u.indexOf('ad_data_204') !== -1) {
+            return true; // silently swallow — callers treat true as success
+          }
+          return _origBeacon(url, data);
+        };
+      } catch(e) {}
+
     } catch(e) {}
     true;
-  })();`;
+  })()`;
 
   if (site.earlyJs) {
     return generic + '\n' + site.earlyJs;
@@ -576,11 +659,28 @@ export function SiteWebView({
         }}
         onShouldStartLoadWithRequest={req => {
           const url = req.url || '';
+          // Block app-store deep links.
           if (
             url.startsWith('intent:') ||
             url.startsWith('market:') ||
             url.startsWith('vnd.youtube:') ||
             url.includes('play.google.com/store/apps/details')
+          ) {
+            return false;
+          }
+          // Network-level: block known ad-serving / tracking domains and
+          // YouTube's own ad-stat endpoints (iframes, script tags, pixels).
+          // Mirrors Brave's network filter list for these domains.
+          if (
+            url.includes('doubleclick.net') ||
+            url.includes('googleadservices.com') ||
+            url.includes('googlesyndication.com') ||
+            url.includes('googletagservices.com') ||
+            url.includes('/pagead/') ||
+            url.includes('/api/stats/ads') ||
+            url.includes('/ptracking') ||
+            url.includes('/ad_data_204') ||
+            url.includes('get_midroll_info')
           ) {
             return false;
           }
