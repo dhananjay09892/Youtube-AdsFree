@@ -79,7 +79,7 @@ jobs:
       - run: npm ci
       - uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
+          eas-version: 24.11.0
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Build the production iOS app
         id: build
