@@ -1,0 +1,121 @@
+name: Mobile iOS - Build and TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit_to_testflight:
+        description: Submit the completed build to TestFlight
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adsfreeplayer-mobile-ios-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify mobile app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  release:
+    name: Build iOS and optionally submit
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: testflight
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      EAS_NO_VCS: '1'
+      EAS_PROJECT_ROOT: ${{ github.workspace }}/mobile
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release configuration
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          SUBMIT_TO_TESTFLIGHT: ${{ inputs.submit_to_testflight }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          if (!process.env.EXPO_TOKEN) {
+            throw new Error('Set the EXPO_TOKEN secret in the testflight environment.');
+          }
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
+          if (!app.extra?.eas?.projectId || !app.ios?.bundleIdentifier) {
+            throw new Error('The mobile app must have an EAS project ID and iOS bundle identifier.');
+          }
+          if (process.env.SUBMIT_TO_TESTFLIGHT === 'true') {
+            const config = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+            if (!/^[1-9][0-9]*$/.test(config.submit?.production?.ios?.ascAppId || '')) {
+              throw new Error('Set submit.production.ios.ascAppId in eas.json to the numeric Apple ID.');
+            }
+          }
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Build the production iOS app
+        id: build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas build --platform ios --profile production --non-interactive --wait --json > "$RUNNER_TEMP/ios-build.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const builds = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/ios-build.json`, 'utf8'));
+          if (!Array.isArray(builds) || builds.length !== 1) {
+            throw new Error('Expected exactly one iOS build result.');
+          }
+          const build = builds[0];
+          if (build.platform !== 'IOS' || build.status !== 'FINISHED' || build.distribution !== 'STORE'
+            || !/^[0-9a-f-]{36}$/i.test(build.id)) {
+            throw new Error('EAS did not return a successful App Store iOS build.');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_id=${build.id}\n`);
+          const url = build.buildDetailsPageUrl || `https://expo.dev/builds/${build.id}`;
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `## iOS build completed\n\n[Open EAS build](${url})\n\nBuild ID: \`${build.id}\`\n\n`);
+          NODE
+      - name: Submit this exact build to TestFlight
+        if: ${{ inputs.submit_to_testflight }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          BUILD_ID: ${{ steps.build.outputs.build_id }}
+        run: |
+          eas submit --platform ios --profile production --id "$BUILD_ID" --non-interactive --wait
+          printf '%s\n' \
+            '## Submission completed' \
+            '' \
+            'Apple still needs to process the upload. Check App Store Connect > AdsFree Player > TestFlight, complete compliance questions, and add the build to your testing group.' \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Build-only result
+        if: ${{ !inputs.submit_to_testflight }}
+        run: |
+          printf '%s\n' 'Submission was disabled. This build has not been uploaded to TestFlight.' >> "$GITHUB_STEP_SUMMARY"
