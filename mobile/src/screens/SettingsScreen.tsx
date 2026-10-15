@@ -238,7 +238,8 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxxl,
+    // Room for the floating menu pill.
+    paddingBottom: 120,
   },
   screenTitle: {
     color: colors.text.primary,

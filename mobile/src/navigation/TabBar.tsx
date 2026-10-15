@@ -1,40 +1,30 @@
-// TabBar — animated bottom tab bar that:
-//   • Auto-hides when a video is playing (URL contains ?v=)
-//   • Slides back in on swipe-up, then auto-hides again after 3 s of inactivity
-//   • Uses react-native-reanimated for 60 fps spring animation (no JS thread)
-//   • Exposes the same visual API as @react-navigation/bottom-tabs' tabBar prop
+// TabBar — floating icon pill that overlays the page instead of reserving a
+// strip at the bottom, so the WebView uses the whole screen.
 //
-// Design:
-//   Two full-width content tabs (YouTube, YT Music) + compact Settings icon.
-//   Active tab shows a 3 px red indicator bar at the top.
-//   NO opacity animation — translateY only, which avoids the Android black-flash
-//   bug caused by the hardware texture layer when opacity drops to 0.
+//   • Absolutely positioned: takes ZERO layout space (the old bar always
+//     shrank the page by its own height, even while slid off-screen).
+//   • Four 48 pt targets near the thumb: YouTube, Music, Search, Settings.
+//   • Hides while scrolling down and on video pages; scrolling up brings it
+//     back. A small grab handle at the bottom edge also brings it back.
+//   • translateY only — no opacity animation (opacity=0 causes an Android
+//     black flash with the hardware texture layer).
 
 import React from 'react';
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type LayoutChangeEvent,
-} from 'react-native';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
   runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
-import {
-  GestureDetector,
-  Gesture,
-  type GestureStateChangeEvent,
-  type PanGestureHandlerEventPayload,
-} from 'react-native-gesture-handler';
 import type {BottomTabBarProps} from '@react-navigation/bottom-tabs';
 
+import {SearchOverlay} from '../components/SearchOverlay';
+import {ytMusicConfig} from '../config/ytmusic.site';
+import {youtubeConfig} from '../config/youtube.site';
 import {useStore} from '../store/useStore';
-import {colors, typography, spacing, radius} from '../theme';
+import {colors, radius, spacing} from '../theme';
+import {shouldHideBar} from './barVisibility';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,17 +38,22 @@ function isVideoUrl(url: string | undefined): boolean {
   return url.includes('?v=') || url.includes('&v=');
 }
 
-// Spring config: snappy entry (user swiped up), gentle exit.
 const SPRING_CONFIG = {damping: 22, stiffness: 220, mass: 0.7};
-
-// How long the bar stays visible after a swipe-up during video playback (ms).
+// How long the pill stays visible after the user asks for it on a video page.
 const AUTO_HIDE_MS = 3000;
+const PILL_HEIGHT = 56;
+const BOTTOM_GAP = 12;
 
-// Tab display metadata keyed by route name.
 const TAB_META: Record<string, {label: string; icon: string}> = {
-  YouTube: {label: 'YouTube', icon: '\u25B6'},   // ▶ solid triangle
-  YTMusic: {label: 'Music', icon: '\u266B'},      // ♫ beamed notes
+  YouTube: {label: 'YouTube', icon: '▶'}, // ▶
+  YTMusic: {label: 'YT Music', icon: '♫'}, // ♫
 };
+
+// Which site + WebView tabId the search overlay should drive.
+const SEARCH_TARGETS = {
+  YouTube: {site: youtubeConfig, tabId: 'youtube:/'},
+  YTMusic: {site: ytMusicConfig, tabId: 'ytmusic:/'},
+} as const;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -66,246 +61,250 @@ const TAB_META: Record<string, {label: string; icon: string}> = {
 
 export function TabBar({
   state,
-  descriptors,
   navigation,
   insets,
 }: BottomTabBarProps): React.ReactElement {
   const perSiteNavState = useStore(s => s.perSiteNavState);
+  const scrollDir = useStore(s => s.scrollDir);
+  const setScrollDir = useStore(s => s.setScrollDir);
+  const searchOpen = useStore(s => s.searchOpen);
+  const setSearchOpen = useStore(s => s.setSearchOpen);
 
   const videoActive = React.useMemo(
     () => Object.values(perSiteNavState).some(v => isVideoUrl(v.currentUrl)),
     [perSiteNavState],
   );
 
-  // Real bar height measured after layout so translateY exactly covers it.
-  const [barHeight, setBarHeight] = React.useState<number>(
-    Platform.select({ios: 64, android: 56}) ?? 60,
-  );
-  const onLayout = React.useCallback(
-    (e: LayoutChangeEvent) => setBarHeight(e.nativeEvent.layout.height),
-    [],
-  );
+  const safeBottom = insets?.bottom ?? 0;
+  const hideOffset = PILL_HEIGHT + safeBottom + BOTTOM_GAP + 8;
 
-  // translateY only — no opacity animation (opacity=0 causes Android black flash).
+  const activeName = state.routes[state.index].name;
+  const onSettings = activeName === 'Settings';
+
   const translateY = useSharedValue<number>(0);
-
-  // JS-side hidden flag — drives pointerEvents so the off-screen bar can't
-  // intercept touches on the underlying WebView.
+  // JS-side flag so the off-screen pill can't intercept touches.
   const [hidden, setHidden] = React.useState(false);
-
   const hideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isHiddenRef = React.useRef<boolean>(false);
 
-  const hide = React.useCallback(() => {
-    isHiddenRef.current = true;
-    translateY.value = withSpring(barHeight, SPRING_CONFIG, () => runOnJS(setHidden)(true));
-  }, [barHeight, translateY]);
-
-  const show = React.useCallback(
-    (autoHideAfter?: number) => {
-      isHiddenRef.current = false;
-      setHidden(false);
-      translateY.value = withSpring(0, SPRING_CONFIG);
-      if (autoHideAfter) {
-        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = setTimeout(() => {
-          if (videoActive) hide();
-        }, autoHideAfter);
-      }
-    },
-    [translateY, videoActive, hide],
-  );
-
-  React.useEffect(() => {
+  const clearTimer = React.useCallback(() => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
-    if (videoActive) {
-      hideTimerRef.current = setTimeout(() => hide(), 800);
+  }, []);
+
+  const hide = React.useCallback(() => {
+    translateY.value = withSpring(hideOffset, SPRING_CONFIG, () =>
+      runOnJS(setHidden)(true),
+    );
+  }, [hideOffset, translateY]);
+
+  const show = React.useCallback(
+    (autoHideAfter?: number) => {
+      clearTimer();
+      setHidden(false);
+      translateY.value = withSpring(0, SPRING_CONFIG);
+      if (autoHideAfter) {
+        hideTimerRef.current = setTimeout(hide, autoHideAfter);
+      }
+    },
+    [clearTimer, hide, translateY],
+  );
+
+  const wantHidden = shouldHideBar({
+    scrollDown: scrollDir === 'down',
+    videoActive,
+    onSettings,
+    searchOpen,
+  });
+
+  React.useEffect(() => {
+    clearTimer();
+    if (wantHidden) {
+      // Small delay on video pages so the pill doesn't vanish mid-tap.
+      hideTimerRef.current = setTimeout(hide, videoActive ? 800 : 0);
     } else {
       show();
     }
-    return () => {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoActive]);
+    return clearTimer;
+  }, [wantHidden, videoActive, hide, show, clearTimer]);
 
-  const swipeUpGesture = Gesture.Pan().onEnd(
-    (e: GestureStateChangeEvent<PanGestureHandlerEventPayload>) => {
-      if (e.velocityY < -300 || e.translationY < -30) {
-        runOnJS(show)(AUTO_HIDE_MS);
-      }
-    },
-  );
+  // Scrolling up on a video page: peek the pill, then tuck it away again.
+  React.useEffect(() => {
+    if (scrollDir === 'up' && videoActive && !onSettings && !searchOpen) {
+      show(AUTO_HIDE_MS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollDir]);
+
+  // New screen = fresh scroll state, otherwise a stale "down" would hide the
+  // pill on the page we just switched to.
+  React.useEffect(() => {
+    setScrollDir('up');
+  }, [state.index, setScrollDir]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{translateY: translateY.value}],
   }));
 
-  const safeBottom = insets?.bottom ?? 0;
+  const goTo = (name: 'YouTube' | 'YTMusic' | 'Settings'): void => {
+    if (state.routes[state.index].name !== name) {
+      navigation.navigate(name);
+    }
+  };
 
-  const mainRoutes = state.routes.filter(r => r.name !== 'Settings');
-  const settingsIndex = state.routes.findIndex(r => r.name === 'Settings');
-  const settingsFocused = state.index === settingsIndex;
+  const openSearch = (): void => {
+    // Settings has no page to search — jump to YouTube first.
+    if (onSettings) {
+      navigation.navigate('YouTube');
+    }
+    setSearchOpen(true);
+  };
+
+  const searchTarget =
+    activeName === 'YTMusic' ? SEARCH_TARGETS.YTMusic : SEARCH_TARGETS.YouTube;
+
+  const items: Array<{
+    key: string;
+    icon: string;
+    label: string;
+    focused: boolean;
+    onPress: () => void;
+  }> = [
+    {
+      key: 'YouTube',
+      icon: TAB_META.YouTube.icon,
+      label: TAB_META.YouTube.label,
+      focused: activeName === 'YouTube',
+      onPress: () => goTo('YouTube'),
+    },
+    {
+      key: 'YTMusic',
+      icon: TAB_META.YTMusic.icon,
+      label: TAB_META.YTMusic.label,
+      focused: activeName === 'YTMusic',
+      onPress: () => goTo('YTMusic'),
+    },
+    {
+      key: 'Search',
+      icon: '\u{1F50D}',
+      label: 'Search',
+      focused: searchOpen,
+      onPress: openSearch,
+    },
+    {
+      key: 'Settings',
+      icon: '⚙',
+      label: 'Settings',
+      focused: onSettings,
+      onPress: () => goTo('Settings'),
+    },
+  ];
 
   return (
-    <GestureDetector gesture={swipeUpGesture}>
+    <>
+      {searchOpen ? (
+        <SearchOverlay tabId={searchTarget.tabId} site={searchTarget.site} />
+      ) : null}
+
       <Animated.View
-        pointerEvents={hidden ? 'none' : 'auto'}
-        style={[styles.container, {paddingBottom: safeBottom}, animatedStyle]}
-        onLayout={onLayout}>
-        {/* Top separator */}
-        <View style={styles.topBorder} />
-
-        {mainRoutes.map(route => {
-          const routeIndex = state.routes.findIndex(r => r.key === route.key);
-          const isFocused = state.index === routeIndex;
-          const meta = TAB_META[route.name] ?? {label: route.name, icon: '\u25CF'};
-          const {options} = descriptors[route.key];
-          const label =
-            typeof options.tabBarLabel === 'string' ? options.tabBarLabel : meta.label;
-
-          const onPress = () => {
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
-
-          const onLongPress = () => {
-            navigation.emit({type: 'tabLongPress', target: route.key});
-          };
-
-          return (
+        pointerEvents={hidden ? 'none' : 'box-none'}
+        style={[styles.wrap, {bottom: safeBottom + BOTTOM_GAP}, animatedStyle]}>
+        <View style={styles.pill}>
+          {items.map(item => (
             <Pressable
-              key={route.key}
+              key={item.key}
               accessibilityRole="button"
-              accessibilityState={isFocused ? {selected: true} : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
-              onPress={onPress}
-              onLongPress={onLongPress}
-              style={styles.tab}>
-              {/* Active indicator pill at the very top of the tab */}
-              <View
-                style={[styles.indicator, isFocused && styles.indicatorActive]}
-              />
+              accessibilityLabel={item.label}
+              accessibilityState={item.focused ? {selected: true} : {}}
+              onPress={item.onPress}
+              hitSlop={4}
+              style={[styles.btn, item.focused && styles.btnActive]}>
               <Text
                 style={[
                   styles.icon,
-                  {color: isFocused ? colors.accent.red : colors.text.tertiary},
+                  {color: item.focused ? colors.accent.red : colors.text.secondary},
                 ]}>
-                {meta.icon}
-              </Text>
-              <Text
-                style={[
-                  styles.label,
-                  {
-                    color: isFocused ? colors.text.primary : colors.text.tertiary,
-                    fontWeight: isFocused ? '600' : '400',
-                  },
-                ]}>
-                {label}
+                {item.icon}
               </Text>
             </Pressable>
-          );
-        })}
-
-        {/* Settings — compact icon, not a full tab */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-          accessibilityState={settingsFocused ? {selected: true} : {}}
-          onPress={() => navigation.navigate('Settings')}
-          style={styles.gearBtn}>
-          {/* Active indicator for settings */}
-          <View
-            style={[styles.indicator, settingsFocused && styles.indicatorActive]}
-          />
-          <Text
-            style={[
-              styles.gearIcon,
-              {color: settingsFocused ? colors.accent.red : colors.text.tertiary},
-            ]}>
-            {/* U+2699 GEAR — plain text, no emoji variation selector */}
-            {'\u2699'}
-          </Text>
-        </Pressable>
+          ))}
+        </View>
       </Animated.View>
-    </GestureDetector>
+
+      {/* Grab handle — only while the pill is tucked away */}
+      {hidden && !searchOpen ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.handleWrap, {bottom: safeBottom + 2}]}>
+          <Pressable
+            onPress={() => show(AUTO_HIDE_MS)}
+            accessibilityRole="button"
+            accessibilityLabel="Show menu"
+            hitSlop={{top: 16, bottom: 8, left: 24, right: 24}}
+            style={styles.handleHit}>
+            <View style={styles.handle} />
+          </Pressable>
+        </View>
+      ) : null}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    backgroundColor: '#111111',
-    // Ensure we always have an opaque background (never transparent/black flash).
-    ...Platform.select({
-      android: {
-        height: 56,
-        elevation: 12,
-      },
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: {width: 0, height: -1},
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
-      },
-    }),
-  },
-  topBorder: {
+  wrap: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border.medium,
-  },
-  tab: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: spacing.sm,
-    paddingTop: spacing.xs,
-    minHeight: 48,
+    zIndex: 20,
   },
-  indicator: {
-    position: 'absolute',
-    top: 0,
-    width: 36,
-    height: 3,
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: PILL_HEIGHT,
+    paddingHorizontal: spacing.sm,
+    gap: spacing.xs,
+    // Opaque so the page never shows through (and no Android black flash).
+    backgroundColor: '#161616',
     borderRadius: radius.full,
-    backgroundColor: 'transparent',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border.medium,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
   },
-  indicatorActive: {
-    backgroundColor: colors.accent.red,
+  btn: {
+    width: 56,
+    height: 48,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnActive: {
+    backgroundColor: 'rgba(255,0,0,0.16)',
   },
   icon: {
-    fontSize: 18,
-    lineHeight: 22,
-    marginBottom: 2,
+    fontSize: 22,
+    lineHeight: 26,
   },
-  label: {
-    fontSize: typography.fontSize.xs,
-    letterSpacing: 0.2,
-  },
-  gearBtn: {
-    width: 52,
+  handleWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: spacing.sm,
-    paddingTop: spacing.xs,
-    minHeight: 48,
+    zIndex: 20,
   },
-  gearIcon: {
-    fontSize: 20,
-    lineHeight: 24,
+  handleHit: {
+    paddingVertical: 6,
+    paddingHorizontal: 24,
+  },
+  handle: {
+    width: 44,
+    height: 5,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.4)',
   },
 });
-

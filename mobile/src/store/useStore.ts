@@ -43,6 +43,14 @@ export const useStore = create<AppStore>((set, get) => ({
   recentSearches: [],
   signedInUser: null,
   adStats: EMPTY_AD_STATS,
+  scrollDir: 'up',
+  setScrollDir: (dir): void => {
+    if (get().scrollDir !== dir) {
+      set({scrollDir: dir});
+    }
+  },
+  searchOpen: false,
+  setSearchOpen: (open): void => set({searchOpen: open}),
   activeSiteId: 'youtube',
   perSiteNavState: {},
 

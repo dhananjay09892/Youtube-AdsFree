@@ -53,6 +53,12 @@ export interface AppStore {
   recentSearches: string[];
   signedInUser: SignedInUser | null;
   adStats: AdStats;
+  /** Last vertical scroll direction reported by the active page. */
+  scrollDir: 'up' | 'down';
+  setScrollDir: (dir: 'up' | 'down') => void;
+  /** Whether the full-screen search overlay is open. */
+  searchOpen: boolean;
+  setSearchOpen: (open: boolean) => void;
   /** Add a delta reported by the WebView to the running totals. */
   addAdStats: (delta: AdStats) => void;
   resetAdStats: () => void;

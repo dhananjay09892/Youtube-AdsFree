@@ -50,6 +50,7 @@ export function SiteWebView({
   const pendingNav = useStore(state => tabId ? state.pendingNavigation[tabId] : undefined);
   const clearNavigation = useStore(state => state.clearNavigation);
   const addAdStats = useStore(state => state.addAdStats);
+  const setScrollDir = useStore(state => state.setScrollDir);
   const webRef = React.useRef<WebViewType>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [crashKey, setCrashKey] = React.useState<number>(0);
@@ -248,6 +249,7 @@ export function SiteWebView({
               feed?: number;
               prevented?: number;
               skipped?: number;
+              dir?: 'up' | 'down';
             };
             if (msg.type === 'track' && msg.title) {
               NowPlaying.update({
@@ -262,6 +264,8 @@ export function SiteWebView({
                 title: msg.title,
                 artist: msg.artist ?? 'AdsFree Player',
               });
+            } else if (msg.type === 'scroll' && msg.dir) {
+              setScrollDir(msg.dir);
             } else if (msg.type === 'adstats') {
               addAdStats({
                 feed: msg.feed ?? 0,

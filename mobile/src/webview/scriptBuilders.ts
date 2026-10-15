@@ -444,7 +444,38 @@ export function buildInjectedJs(
         }, 3000);
       }
 
+      // Reports vertical scroll direction (only when it CHANGES) so the app can
+      // hide its floating menu while the user scrolls down and show it on up.
+      function installScrollBridge(){
+        var last = new WeakMap();
+        var dir = 'up';
+        document.addEventListener('scroll', function(e){
+          var t = e.target;
+          var isDoc = (t === document || t === document.documentElement || t === document.body);
+          var cur;
+          if (isDoc) {
+            cur = window.pageYOffset || document.documentElement.scrollTop || 0;
+          } else {
+            // Ignore small / horizontal scrollers (chip rows, carousels).
+            if (!t || !t.clientWidth || t.clientWidth < window.innerWidth * 0.8) return;
+            cur = t.scrollTop || 0;
+          }
+          var key = isDoc ? document : t;
+          if (!last.has(key)) { last.set(key, cur); return; }
+          var prev = last.get(key);
+          var delta = cur - prev;
+          if (Math.abs(delta) < 10) return;
+          last.set(key, cur);
+          var next = (cur < 40 || delta < 0) ? 'up' : 'down';
+          if (next !== dir) {
+            dir = next;
+            try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'scroll', dir:dir})); } catch(err){}
+          }
+        }, true);
+      }
+
       applyCss();
+      installScrollBridge();
       installBackgroundAudio();
       installPlaybackBridge();
 
