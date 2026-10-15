@@ -3,11 +3,13 @@
 
 import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {AppSettings, AppStore, DEFAULT_SETTINGS} from './types';
+import {AdStats, AppSettings, AppStore, DEFAULT_SETTINGS} from './types';
 
 const SETTINGS_KEY = '@youtube_appview/settings/v1';
 const RECENT_SEARCHES_KEY = '@youtube_appview/recent_searches/v1';
+const AD_STATS_KEY = '@youtube_appview/ad_stats/v1';
 const MAX_RECENT_SEARCHES = 10;
+const EMPTY_AD_STATS: AdStats = {feed: 0, prevented: 0, skipped: 0};
 
 // Persist helper. Logs but does not throw — UI shows toast on failure.
 async function persistSettings(settings: AppSettings): Promise<void> {
@@ -16,6 +18,14 @@ async function persistSettings(settings: AppSettings): Promise<void> {
   } catch (error) {
     console.error('Settings save failed:', error);
     throw error;
+  }
+}
+
+async function persistAdStats(stats: AdStats): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AD_STATS_KEY, JSON.stringify(stats));
+  } catch (error) {
+    console.error('Ad stats save failed:', error);
   }
 }
 
@@ -32,9 +42,26 @@ export const useStore = create<AppStore>((set, get) => ({
   isLoading: true,
   recentSearches: [],
   signedInUser: null,
+  adStats: EMPTY_AD_STATS,
   activeSiteId: 'youtube',
   perSiteNavState: {},
 
+
+  addAdStats: (delta: AdStats): void => {
+    const cur = get().adStats;
+    const next = {
+      feed: cur.feed + delta.feed,
+      prevented: cur.prevented + delta.prevented,
+      skipped: cur.skipped + delta.skipped,
+    };
+    set({adStats: next});
+    void persistAdStats(next);
+  },
+
+  resetAdStats: (): void => {
+    set({adStats: EMPTY_AD_STATS});
+    void persistAdStats(EMPTY_AD_STATS);
+  },
 
   // Merge a partial update into current settings and auto-persist.
   updateSettings: (partial: Partial<AppSettings>): void => {
@@ -75,9 +102,10 @@ export const useStore = create<AppStore>((set, get) => ({
   // Load both settings and recent searches from AsyncStorage on app start.
   loadSettingsFromStorage: async (): Promise<void> => {
     try {
-      const [rawSettings, rawSearches] = await Promise.all([
+      const [rawSettings, rawSearches, rawAdStats] = await Promise.all([
         AsyncStorage.getItem(SETTINGS_KEY),
         AsyncStorage.getItem(RECENT_SEARCHES_KEY),
+        AsyncStorage.getItem(AD_STATS_KEY),
       ]);
 
       const settings: AppSettings = rawSettings
@@ -88,7 +116,11 @@ export const useStore = create<AppStore>((set, get) => ({
         ? (JSON.parse(rawSearches) as string[])
         : [];
 
-      set({settings, recentSearches, isLoading: false});
+      const adStats: AdStats = rawAdStats
+        ? {...EMPTY_AD_STATS, ...(JSON.parse(rawAdStats) as Partial<AdStats>)}
+        : EMPTY_AD_STATS;
+
+      set({settings, recentSearches, adStats, isLoading: false});
     } catch (error) {
       console.error('Settings load failed:', error);
       set({settings: DEFAULT_SETTINGS, recentSearches: [], isLoading: false});

@@ -6,6 +6,7 @@
 // changes.
 
 import {SiteConfig} from './siteRegistry';
+import {VIDEO_AD_KILLER_SRC} from '../webview/adCleaner';
 
 export const youtubeConfig: SiteConfig = {
   id: 'youtube',
@@ -116,58 +117,19 @@ export const youtubeConfig: SiteConfig = {
       ytm-watch[is-watch-page] #player .player-container {
         max-height: 56.25vw !important;
       }
+      /* Hide the ad picture while it is being fast-forwarded so it never flashes. */
+      .html5-video-player.ad-showing video,
+      .html5-video-player.ad-interrupting video { opacity: 0 !important; }
       ytm-watch-metadata-section-renderer,
       ytm-item-section-renderer { display: block !important; }
     `,
 
-    // Fast-forward + mute ad video. Tries skip button first, then
-    // jumps currentTime to end and sets playbackRate to 16.
-    // adActive no longer requires the overlay element — mobile YouTube often
-    // omits .ytp-ad-player-overlay while still setting .ad-showing /
-    // .ad-interrupting on the player container.
-    killAdJs: `
-      (function(){
-        var player = document.querySelector('.html5-video-player');
-        var adActive = !!(player && (
-          player.classList.contains('ad-showing') ||
-          player.classList.contains('ad-interrupting')
-        ));
-        var mainVideo = document.querySelector('.html5-main-video, video.video-stream.html5-main-video') || document.querySelector('video');
-        if (!adActive) {
-          if (mainVideo && mainVideo.dataset && mainVideo.dataset.appviewMuted === '1') {
-            try { mainVideo.muted = false; } catch(e){}
-            try { delete mainVideo.dataset.appviewMuted; } catch(e){}
-          }
-          return;
-        }
-        var skip = document.querySelector([
-          '.ytp-ad-skip-button',
-          '.ytp-skip-ad-button',
-          '.ytp-ad-skip-button-modern',
-          '.ytp-ad-skip-button-text',
-          '.ytp-ad-overlay-close-button',
-          'button[class*="skip-ad"]',
-          'button[class*="skipAd"]',
-          '[id*="skip-ad"]',
-        ].join(', '));
-        if (skip) { try { skip.click(); } catch(e){} }
-        var adVideo = document.querySelector('.video-ads video, .ad-showing video, .ad-interrupting video');
-        var target = adVideo || mainVideo;
-        if (target) {
-          try {
-            if (!target.muted) { target.muted = true; if (target.dataset) target.dataset.appviewMuted = '1'; }
-          } catch(e){}
-          if (isFinite(target.duration) && target.duration > 0 && target.duration < 600) {
-            try { target.currentTime = Math.max(target.currentTime, target.duration - 0.1); } catch(e){}
-            try { target.playbackRate = 16; } catch(e){}
-          }
-        }
-      })();
-    `,
+    // Shared ad killer (see webview/adCleaner.ts): skips, mutes and
+    // fast-forwards any ad that starts, then restores mute / speed.
+    killAdJs: VIDEO_AD_KILLER_SRC,
   },
 
-  // Fetch interception (strips adPlacements / playerAds from every
-  // /youtubei/v1/player call) is now handled generically in SiteWebView's
-  // buildEarlyJs so all sites benefit without duplication.
+  // API-response ad stripping is handled generically in webview/scriptBuilders
+  // (buildEarlyJs) so all sites benefit without duplication.
   earlyJs: undefined,
 };

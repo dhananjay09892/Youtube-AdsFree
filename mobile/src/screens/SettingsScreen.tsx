@@ -46,10 +46,21 @@ function ToggleRow({label, value, onChange}: ToggleRowProps): React.ReactElement
   );
 }
 
+function StatRow({label, value}: {label: string; value: number}): React.ReactElement {
+  return (
+    <View style={styles.statRow}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>{value}</Text>
+    </View>
+  );
+}
+
 export function SettingsScreen(): React.ReactElement {
   const {settings, update, reset} = useSettings();
   const signedInUser = useStore(s => s.signedInUser);
   const setSignedInUser = useStore(s => s.setSignedInUser);
+  const adStats = useStore(s => s.adStats);
+  const resetAdStats = useStore(s => s.resetAdStats);
   const [authBusy, setAuthBusy] = React.useState<boolean>(false);
 
   const setMode = (m: ModeType): void => update({mode: m});
@@ -175,6 +186,15 @@ export function SettingsScreen(): React.ReactElement {
           value={settings.hideTrending}
           onChange={setBool('hideTrending')}
         />
+
+        <View style={styles.statsCard}>
+          <StatRow label="Feed ads removed" value={adStats.feed} />
+          <StatRow label="Video ads stripped" value={adStats.prevented} />
+          <StatRow label="Ads that slipped through (skipped)" value={adStats.skipped} />
+          <TouchableOpacity onPress={resetAdStats}>
+            <Text style={styles.statsReset}>Reset counters</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.divider} />
 
@@ -315,6 +335,32 @@ const styles = StyleSheet.create({
     color: colors.accent.red,
     fontSize: typography.fontSize.sm,
     fontWeight: '600',
+  },
+  statsCard: {
+    backgroundColor: colors.background.secondary,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  statLabel: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    flex: 1,
+  },
+  statValue: {
+    color: colors.text.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: '600',
+  },
+  statsReset: {
+    color: colors.text.tertiary,
+    fontSize: typography.fontSize.xs,
+    marginTop: spacing.sm,
   },
   version: {
     color: colors.text.tertiary,

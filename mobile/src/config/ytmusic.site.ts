@@ -6,6 +6,7 @@
 // pre-roll ads. The killAdJs here handles any that slip through.
 
 import {SiteConfig} from './siteRegistry';
+import {VIDEO_AD_KILLER_SRC} from '../webview/adCleaner';
 
 export const ytMusicConfig: SiteConfig = {
   id: 'ytmusic',
@@ -78,32 +79,9 @@ export const ytMusicConfig: SiteConfig = {
       }
     `,
 
-    // Fast-forward / skip any audio pre-roll that wasn't blocked by the
-    // fetch interception (same technique as the YouTube killAdJs).
-    killAdJs: `
-      (function(){
-        var player = document.querySelector('.html5-video-player');
-        var adActive = !!(player && (
-          player.classList.contains('ad-showing') ||
-          player.classList.contains('ad-interrupting')
-        ));
-        if (!adActive) return;
-        var skip = document.querySelector([
-          '.ytp-ad-skip-button',
-          '.ytp-skip-ad-button',
-          '.ytp-ad-skip-button-modern',
-          '.ytp-ad-skip-button-text',
-          'button[class*="skip-ad"]',
-        ].join(', '));
-        if (skip) { try { skip.click(); } catch(e){} }
-        var video = document.querySelector('video');
-        if (video && isFinite(video.duration) && video.duration > 0 && video.duration < 600) {
-          try { video.muted = true; } catch(e){}
-          try { video.currentTime = Math.max(video.currentTime, video.duration - 0.1); } catch(e){}
-          try { video.playbackRate = 16; } catch(e){}
-        }
-      })();
-    `,
+    // Shared ad killer — skips / fast-forwards any audio pre-roll that
+    // wasn't stripped from the API response.
+    killAdJs: VIDEO_AD_KILLER_SRC,
   },
 
   // No additional earlyJs needed — the generic fetch interception in

@@ -25,6 +25,16 @@ export interface AppSettings {
   backgroundPlay: boolean;
 }
 
+/** Running totals of what the ad blocker has done (persisted across launches). */
+export interface AdStats {
+  /** Feed / search / watch-next ad items removed from page data. */
+  feed: number;
+  /** Video ad payloads (pre/mid-roll) stripped before the player saw them. */
+  prevented: number;
+  /** Ads that still started playing and had to be skipped / fast-forwarded. */
+  skipped: number;
+}
+
 export interface Video {
   videoId: string;
   title: string;
@@ -42,6 +52,10 @@ export interface AppStore {
   isLoading: boolean;
   recentSearches: string[];
   signedInUser: SignedInUser | null;
+  adStats: AdStats;
+  /** Add a delta reported by the WebView to the running totals. */
+  addAdStats: (delta: AdStats) => void;
+  resetAdStats: () => void;
   /** ID of the currently active site (e.g. 'youtube'). */
   activeSiteId: string;
   /** Most-recently-navigated URL per tab, keyed by tabId string. */
