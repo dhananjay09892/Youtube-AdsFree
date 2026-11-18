@@ -3,7 +3,8 @@
 //
 //   • Absolutely positioned: takes ZERO layout space (the old bar always
 //     shrank the page by its own height, even while slid off-screen).
-//   • Four 48 pt targets near the thumb: YouTube, Music, Search, Settings.
+//   • Thumb-sized targets: Home / Subscriptions / Library (YouTube's own nav
+//     is hidden), Music, Search, Settings.
 //   • Hides while scrolling down and on video pages; scrolling up brings it
 //     back. A small grab handle at the bottom edge also brings it back.
 //   • translateY only — no opacity animation (opacity=0 causes an Android
@@ -69,6 +70,7 @@ export function TabBar({
   const setScrollDir = useStore(s => s.setScrollDir);
   const searchOpen = useStore(s => s.searchOpen);
   const setSearchOpen = useStore(s => s.setSearchOpen);
+  const requestNavigation = useStore(s => s.requestNavigation);
 
   const videoActive = React.useMemo(
     () => Object.values(perSiteNavState).some(v => isVideoUrl(v.currentUrl)),
@@ -153,6 +155,19 @@ export function TabBar({
     }
   };
 
+  // Jump to a page inside a site's WebView (Home / Subscriptions / Library),
+  // switching to that site's tab first if needed. Each site's own bottom nav
+  // is hidden, so this is the only way to reach those pages.
+  const openPage = (
+    route: 'YouTube' | 'YTMusic',
+    tabId: string,
+    url: string,
+  ): void => {
+    goTo(route);
+    setSearchOpen(false);
+    requestNavigation(tabId, url);
+  };
+
   const openSearch = (): void => {
     // Settings has no page to search — jump to YouTube first.
     if (onSettings) {
@@ -171,20 +186,73 @@ export function TabBar({
     focused: boolean;
     onPress: () => void;
   }> = [
-    {
-      key: 'YouTube',
-      icon: TAB_META.YouTube.icon,
-      label: TAB_META.YouTube.label,
-      focused: activeName === 'YouTube',
-      onPress: () => goTo('YouTube'),
-    },
-    {
-      key: 'YTMusic',
-      icon: TAB_META.YTMusic.icon,
-      label: TAB_META.YTMusic.label,
-      focused: activeName === 'YTMusic',
-      onPress: () => goTo('YTMusic'),
-    },
+    ...(activeName === 'YTMusic'
+      ? [
+          {
+            key: 'YouTube',
+            icon: TAB_META.YouTube.icon,
+            label: 'YouTube',
+            focused: false,
+            onPress: () => goTo('YouTube'),
+          },
+          {
+            key: 'MusicHome',
+            icon: '\u2302',
+            label: 'Music home',
+            focused: false,
+            onPress: () =>
+              openPage('YTMusic', 'ytmusic:/', `${ytMusicConfig.baseUrl}/`),
+          },
+          {
+            key: 'MusicLibrary',
+            icon: '\u{1F4DA}',
+            label: 'Music library',
+            focused: false,
+            onPress: () =>
+              openPage('YTMusic', 'ytmusic:/', `${ytMusicConfig.baseUrl}/library`),
+          },
+        ]
+      : [
+          {
+            key: 'YouTube',
+            icon: TAB_META.YouTube.icon,
+            label: 'YouTube home',
+            focused: activeName === 'YouTube',
+            onPress: () =>
+              openPage('YouTube', 'youtube:/', `${youtubeConfig.baseUrl}/`),
+          },
+          {
+            key: 'Subs',
+            icon: '\u{1F4FA}',
+            label: 'Subscriptions',
+            focused: false,
+            onPress: () =>
+              openPage(
+                'YouTube',
+                'youtube:/',
+                `${youtubeConfig.baseUrl}/feed/subscriptions`,
+              ),
+          },
+          {
+            key: 'Library',
+            icon: '\u{1F4DA}',
+            label: 'Library',
+            focused: false,
+            onPress: () =>
+              openPage(
+                'YouTube',
+                'youtube:/',
+                `${youtubeConfig.baseUrl}/feed/library`,
+              ),
+          },
+          {
+            key: 'YTMusic',
+            icon: TAB_META.YTMusic.icon,
+            label: TAB_META.YTMusic.label,
+            focused: false,
+            onPress: () => goTo('YTMusic'),
+          },
+        ]),
     {
       key: 'Search',
       icon: '\u{1F50D}',
@@ -277,7 +345,7 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
   },
   btn: {
-    width: 56,
+    width: 46,
     height: 48,
     borderRadius: radius.full,
     alignItems: 'center',
