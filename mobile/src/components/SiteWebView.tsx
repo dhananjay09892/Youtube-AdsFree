@@ -6,7 +6,7 @@
 // youtubeConfig here — no other callers need to change.
 
 import React from 'react';
-import {ActivityIndicator, AppState, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {ActivityIndicator, AppState, StyleSheet, View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebView as WebViewType} from 'react-native-webview';
 
@@ -189,6 +189,9 @@ export function SiteWebView({
         mixedContentMode="always"
         setSupportMultipleWindows={false}
         androidLayerType="hardware"
+        // Pull down from the top of the page to reload (replaces the old
+        // floating reload button). Also how to kick a video that won't start.
+        pullToRefreshEnabled
         onLoadEnd={() => setLoading(false)}
         onContentProcessDidTerminate={() => {
           // iOS: WebKit GPU process was killed. Reload to avoid blank screen.
@@ -286,14 +289,6 @@ export function SiteWebView({
         }}
         style={styles.web}
       />
-      {/* Reload button — lets users force-refresh a stuck or broken page */}
-      <TouchableOpacity
-        style={styles.reloadBtn}
-        onPress={() => { setLoading(true); webRef.current?.reload(); }}
-        activeOpacity={0.6}
-        accessibilityLabel="Reload page">
-        <Text style={styles.reloadIcon}>{`\u21BA`}</Text>
-      </TouchableOpacity>
       {loading ? (
         <View style={styles.loaderOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.status.loading} />
@@ -317,26 +312,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background.primary,
-  },
-  // Small semi-transparent reload pill anchored to the top-right of the WebView.
-  // Positioned above the WebView surface so it always catches taps.
-  reloadBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(0,0,0,0.48)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  reloadIcon: {
-    color: '#ffffff',
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: 'bold',
-    includeFontPadding: false,
   },
 });
